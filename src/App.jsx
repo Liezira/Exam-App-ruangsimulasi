@@ -22,6 +22,7 @@ import Students from './pages/super-admin/Students';
 // Teacher Pages
 import TeacherDashboard from './pages/teacher/Dashboard';
 import QuestionBank from './pages/teacher/QuestionBank';
+import ExamManagement from './pages/teacher/ExamManagement';
 
 // Student Pages
 import StudentDashboard from './pages/student/StudentDashboard';
@@ -115,7 +116,7 @@ const App = () => {
         <Route path="/teacher" element={<ProtectedRoute user={user} role={role} allowed={['teacher']}><DashboardLayout role="teacher" /></ProtectedRoute>}>
             <Route index element={<TeacherDashboard />} />
             <Route path="questions" element={<QuestionBank />} />
-            <Route path="exams" element={<div className="p-6">Manajemen Ujian (Coming Soon)</div>} />
+            <Route path="exams" element={<ExamManagement />} />
             <Route path="grades" element={<div className="p-6">Hasil Nilai (Coming Soon)</div>} />
         </Route>
 
