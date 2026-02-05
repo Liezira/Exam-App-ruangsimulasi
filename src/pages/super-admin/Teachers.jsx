@@ -24,7 +24,7 @@ const Teachers = () => {
 
   // 1. Fetch Teachers (Users where role == 'teacher')
   useEffect(() => {
-    const q = query(collection(db, 'users'), where('role', '==', 'teacher')); // Query dasar
+    const q = query(collection(db, 'users'), where('role', '==', 'teacher')); 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTeachers(data);
@@ -49,32 +49,25 @@ const Teachers = () => {
     setIsSaving(true);
     
     try {
-      // NOTE: Di Client-Side App tanpa Backend, kita hanya memanipulasi Data Profil Firestore.
-      // Pembuatan Akun Auth (Email/Pass) idealnya dilakukan user sendiri via Register atau Admin via Console.
-      // Di sini kita simpan data profilnya agar sistem mengenali user tersebut nanti.
-      
       const payload = {
         role: 'teacher',
         displayName: formData.displayName,
         email: formData.email,
         phone: formData.phone,
         nip: formData.nip,
-        subjectId: formData.subjectId, // Relasi ke Mapel
+        subjectId: formData.subjectId, 
         updatedAt: serverTimestamp()
       };
 
       if (editingId) {
-         // Edit Existing
          await setDoc(doc(db, 'users', editingId), payload, { merge: true });
       } else {
-         // Create New (Simulasi ID dari Email agar unik)
-         // Di real app, ini harus sync dengan UID Authentication
          const fakeUid = formData.email.replace(/[^a-zA-Z0-9]/g, '_'); 
          await setDoc(doc(db, 'users', fakeUid), {
            ...payload,
            createdAt: serverTimestamp()
          });
-         alert("Data Guru tersimpan di Database! \n\nCatatan: Karena ini versi Admin Client-Side, akun Login belum otomatis terbuat di Firebase Auth. Silakan buat akun Auth manual di Firebase Console dengan email yang sama.");
+         alert("Data Guru tersimpan!");
       }
       closeModal();
     } catch (error) {
@@ -86,7 +79,7 @@ const Teachers = () => {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Hapus data guru ini? (Akses login akan terputus jika data profil dihapus)')) {
+    if (confirm('Hapus data guru ini?')) {
       await deleteDoc(doc(db, 'users', id));
     }
   };
@@ -136,7 +129,6 @@ const Teachers = () => {
         </button>
       </div>
 
-      {/* Search */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
         <Search size={20} className="text-gray-400" />
         <input 
@@ -148,15 +140,12 @@ const Teachers = () => {
         />
       </div>
 
-      {/* Cards Grid Layout (Lebih modern daripada tabel untuk profil user) */}
       {loading ? (
          <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredTeachers.map((item) => (
             <div key={item.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition relative group">
-              
-              {/* Actions */}
               <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={() => openModal(item)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Pencil size={16}/></button>
                 <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><Trash2 size={16}/></button>
@@ -190,7 +179,6 @@ const Teachers = () => {
               </div>
             </div>
           ))}
-          
           {filteredTeachers.length === 0 && (
              <div className="col-span-full p-8 text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
                Data Guru Kosong
@@ -199,7 +187,6 @@ const Teachers = () => {
         </div>
       )}
 
-      {/* Modal Form */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -210,52 +197,52 @@ const Teachers = () => {
             
             <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="label-text">Nama Lengkap (dengan Gelar)</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Nama Lengkap</label>
                 <input 
                   type="text" required placeholder="Contoh: Budi Santoso, S.Kom"
                   value={formData.displayName}
                   onChange={(e) => setFormData({...formData, displayName: e.target.value})}
-                  className="input-field"
+                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               
               <div>
-                <label className="label-text">Email</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Email</label>
                 <input 
                   type="email" required placeholder="guru@sekolah.sch.id"
                   value={formData.email}
-                  disabled={!!editingId} // Email tidak boleh diedit sembarangan
+                  disabled={!!editingId} 
                   onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  className={`input-field ${editingId ? 'bg-gray-100 text-gray-500' : ''}`}
+                  className={`w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 ${editingId ? 'bg-gray-100 text-gray-500' : ''}`}
                 />
               </div>
               
               <div>
-                <label className="label-text">NIP / ID Guru</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">NIP / ID</label>
                 <input 
                   type="text" placeholder="19823xxx"
                   value={formData.nip}
                   onChange={(e) => setFormData({...formData, nip: e.target.value})}
-                  className="input-field"
+                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="label-text">No WhatsApp</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">No HP</label>
                 <input 
                   type="text" placeholder="0812xxx"
                   value={formData.phone}
                   onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                  className="input-field"
+                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="label-text">Mengampu Mapel</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Mapel</label>
                 <select 
                   value={formData.subjectId}
                   onChange={(e) => setFormData({...formData, subjectId: e.target.value})}
-                  className="input-field"
+                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                   required
                 >
                   <option value="">-- Pilih Mapel --</option>
@@ -279,13 +266,6 @@ const Teachers = () => {
           </div>
         </div>
       )}
-      
-      {/* Helper Style Class (Inline CSS for clarity) */}
-      <style>{`
-        .label-text { display: block; font-size: 0.75rem; font-weight: 700; color: #374151; text-transform: uppercase; margin-bottom: 0.25rem; }
-        .input-field { width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; outline: none; transition: all; }
-        .input-field:focus { ring: 2px; ring-color: #6366f1; border-color: transparent; }
-      `}</style>
     </div>
   );
 };
