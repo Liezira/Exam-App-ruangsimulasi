@@ -24,17 +24,17 @@ const Login = () => {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // 2. Cek Data & Role di Firestore (LOGIC BARU YANG LEBIH PINTAR)
+      // 2. Cek Data & Role di Firestore (LOGIC BARU)
+      let userData = null;
       
       // Cara A: Cek by UID (Standar)
-      let userData = null;
       let docRef = doc(db, 'users', user.uid);
       let docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
         userData = docSnap.data();
       } else {
-        // Cara B: Fallback - Cari by Email (Jika dibuat via Admin Dashboard)
+        // Cara B: Fallback - Cari by Email (Penting untuk akun buatan Admin)
         const q = query(collection(db, 'users'), where('email', '==', user.email));
         const querySnapshot = await getDocs(q);
         
