@@ -114,6 +114,7 @@ const App = () => {
   return (
     <Router>
       <Routes>
+        <Route path="/register" element={<Register />} />
         <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
         
         {/* Redirect Root berdasarkan Role yang ditemukan */}
