@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore'; // Tambahkan query imports
+import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { LogIn, Lock, Mail, Eye, EyeOff, AlertCircle, School } from 'lucide-react';
+import { LogIn, Lock, Mail, Eye, EyeOff, AlertCircle, School, Loader2 } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -24,17 +24,17 @@ const Login = () => {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // 2. Cek Data & Role di Firestore (LOGIC BARU)
+      // 2. Cek Data & Role di Firestore (Smart Lookup)
       let userData = null;
       
-      // Cara A: Cek by UID (Standar)
+      // A. Cek by UID (Standar)
       let docRef = doc(db, 'users', user.uid);
       let docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
         userData = docSnap.data();
       } else {
-        // Cara B: Fallback - Cari by Email (Penting untuk akun buatan Admin)
+        // B. Fallback: Cari by Email (Untuk akun buatan Admin)
         const q = query(collection(db, 'users'), where('email', '==', user.email));
         const querySnapshot = await getDocs(q);
         
@@ -43,20 +43,19 @@ const Login = () => {
         }
       }
 
-      // 3. Validasi Data
+      // 3. Validasi & Redirect
       if (userData) {
         const role = userData.role;
 
-        // Redirect Berdasarkan Role
         if (role === 'super_admin') navigate('/admin');
         else if (role === 'teacher') navigate('/teacher');
         else if (role === 'student') navigate('/student');
         else {
-          setError('Akun tidak memiliki role yang valid. Hubungi Admin.');
+          setError('Role akun tidak valid. Hubungi Admin.');
           await auth.signOut();
         }
       } else {
-        setError('Data pengguna tidak ditemukan dalam database. Pastikan Admin sudah mendaftarkan data Anda.');
+        setError('Data pengguna tidak ditemukan di database.');
         await auth.signOut();
       }
 
@@ -65,9 +64,9 @@ const Login = () => {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
         setError('Email atau password salah.');
       } else if (err.code === 'auth/too-many-requests') {
-        setError('Terlalu banyak percobaan gagal. Coba lagi nanti.');
+        setError('Terlalu banyak percobaan gagal. Tunggu sebentar.');
       } else if (err.message.includes('offline')) {
-        setError('Koneksi Database gagal. Cek Security Rules di Firebase Console.');
+        setError('Koneksi Database bermasalah. Cek internet/rules.');
       } else {
         setError('Gagal masuk: ' + err.message);
       }
@@ -78,8 +77,10 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex bg-white">
-      {/* BAGIAN KIRI - BRANDING */}
+      
+      {/* BAGIAN KIRI - BRANDING / HERO */}
       <div className="hidden lg:flex lg:w-1/2 bg-indigo-900 relative overflow-hidden items-center justify-center">
+        {/* Dekorasi Background */}
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-600 to-blue-900 opacity-90"></div>
         <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
         <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
@@ -100,9 +101,10 @@ const Login = () => {
       {/* BAGIAN KANAN - FORM LOGIN */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-gray-50">
         <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+          
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-800">Selamat Datang</h1>
-            <p className="text-gray-500 text-sm mt-2">Silakan masuk ke akun Anda</p>
+            <p className="text-gray-500 text-sm mt-2">Silakan masuk untuk melanjutkan</p>
           </div>
 
           {error && (
@@ -113,8 +115,10 @@ const Login = () => {
           )}
 
           <form onSubmit={handleLogin} className="space-y-6">
+            
+            {/* Input Email */}
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Email Sekolah</label>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Email</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Mail size={18} className="text-gray-400" />
@@ -123,13 +127,14 @@ const Login = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm font-medium"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-sm font-medium"
                   placeholder="nama@sekolah.sch.id"
                   required
                 />
               </div>
             </div>
 
+            {/* Input Password */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Password</label>
               <div className="relative">
@@ -140,34 +145,39 @@ const Login = () => {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm font-medium"
+                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-sm font-medium"
                   placeholder="••••••••"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
-              </div>
-              <div className="flex justify-end mt-2">
-                <a href="#" className="text-xs font-bold text-indigo-600 hover:text-indigo-800">Lupa Password?</a>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+              className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-indigo-300 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {loading ? 'Memproses...' : <><LogIn size={18} /> Masuk Sekarang</>}
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={20} /> Memproses...
+                </>
+              ) : (
+                <>
+                  <LogIn size={18} /> Masuk Sekarang
+                </>
+              )}
             </button>
           </form>
 
           <div className="mt-8 text-center text-xs text-gray-400 font-medium">
-             &copy; {new Date().getFullYear()} Sistem Ujian Sekolah. All rights reserved.
+             &copy; {new Date().getFullYear()} Sistem Ujian Sekolah.
           </div>
         </div>
       </div>
