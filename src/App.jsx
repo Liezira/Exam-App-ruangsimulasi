@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore'; // Update Import
+import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore'; 
 import { auth, db } from './firebase';
 import { Loader2 } from 'lucide-react';
 
@@ -76,8 +76,7 @@ const App = () => {
             setUser(currentUser);
             setRole(docSnap.data().role);
           } else {
-            // 2. FALLBACK: Cek User berdasarkan Email (Cara "Pintar" untuk akun buatan Admin)
-            // Ini penting karena Admin menyimpan data pakai ID custom, bukan UID Auth
+            // 2. FALLBACK: Cek User berdasarkan Email
             const q = query(collection(db, 'users'), where('email', '==', currentUser.email));
             const querySnapshot = await getDocs(q);
 
@@ -86,7 +85,6 @@ const App = () => {
               setUser(currentUser);
               setRole(userData.role);
             } else {
-              // Login Auth sukses, tapi tidak ada data di DB sama sekali
               setRole('guest');
             }
           }
@@ -118,7 +116,6 @@ const App = () => {
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
         
-        {/* Redirect Root berdasarkan Role yang ditemukan */}
         <Route path="/" element={
             role === 'super_admin' ? <Navigate to="/admin" /> :
             role === 'teacher' ? <Navigate to="/teacher" /> :
