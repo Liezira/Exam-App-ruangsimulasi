@@ -179,38 +179,53 @@ const Register = () => {
 
           {/* MULTI SUBJECT SELECTOR (PERSIS SEPERTI ADMIN) */}
           <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-            <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 flex items-center gap-1">
-              <BookOpen size={14}/> Mata Pelajaran Diampu
-            </label>
-            
-            <div className="flex gap-2 mb-3">
-                <select 
-                  value={selectedSubject} 
-                  onChange={e=>setSelectedSubject(e.target.value)} 
-                  disabled={loadingSubjects}
-                  className="flex-1 p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                >
-                    <option value="">{loadingSubjects ? "Memuat Mapel..." : "-- Pilih Mapel --"}</option>
-                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <button type="button" onClick={handleAddSubject} className="bg-indigo-600 text-white px-3 rounded-lg hover:bg-indigo-700 transition">
-                  <Plus size={20}/>
-                </button>
-            </div>
+  <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 flex items-center gap-1">
+    <BookOpen size={14}/> Mata Pelajaran Diampu
+  </label>
+  
+  <div className="flex gap-2 mb-3">
+      <select 
+        value={selectedSubject} 
+        onChange={e=>setSelectedSubject(e.target.value)} 
+        disabled={loadingSubjects}
+        className="flex-1 p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+      >
+          <option value="">{loadingSubjects ? "Memuat Mapel..." : "-- Pilih Mapel --"}</option>
+          {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
 
-            <div className="flex flex-wrap gap-2 min-h-[30px]">
-                {formData.subjectIds.map(id => {
-                    const subName = subjects.find(s=>s.id===id)?.name || id;
-                    return (
-                        <span key={id} className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm animate-in zoom-in">
-                            {subName} 
-                            <button type="button" onClick={()=>handleRemoveSubject(id)} className="hover:text-red-500 transition"><X size={14}/></button>
-                        </span>
-                    )
-                })}
-                {formData.subjectIds.length === 0 && <span className="text-gray-400 text-xs italic p-1">Belum ada mapel dipilih.</span>}
+      {/* PERHATIKAN: type="button" SANGAT PENTING DISINI */}
+                  <button 
+                    type="button" 
+                    onClick={handleAddSubject} 
+                    className="bg-indigo-600 text-white px-3 rounded-lg hover:bg-indigo-700 transition flex items-center justify-center shadow-sm"
+                    title="Tambahkan Mapel"
+                  >
+                    <Plus size={20}/>
+                  </button>
+              </div>
+
+              {/* Area Menampilkan Tags Mapel yang Sudah Dipilih */}
+              <div className="flex flex-wrap gap-2 min-h-[30px]">
+                  {formData.subjectIds.map(id => {
+                      // Cari nama mapel berdasarkan ID
+                      const subName = subjects.find(s=>s.id===id)?.name || "Loading...";
+                      return (
+                          <span key={id} className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm animate-in zoom-in">
+                              {subName} 
+                              <button 
+                                type="button" 
+                                onClick={()=>handleRemoveSubject(id)} 
+                                className="hover:text-red-500 transition rounded-full p-0.5 hover:bg-red-50"
+                              >
+                                <X size={14}/>
+                              </button>
+                          </span>
+                      )
+                  })}
+                  {formData.subjectIds.length === 0 && <span className="text-gray-400 text-xs italic p-1">Belum ada mapel dipilih.</span>}
+              </div>
             </div>
-          </div>
 
           <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold hover:bg-indigo-700 flex justify-center gap-2 shadow-lg shadow-indigo-200 transition transform active:scale-95">
             {loading ? <Loader2 className="animate-spin"/> : <UserPlus size={20}/>} Daftar Sekarang
