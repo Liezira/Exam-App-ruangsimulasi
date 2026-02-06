@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { Clock, ShieldAlert, CheckCircle2, Grid } from 'lucide-react';
+import { Clock, ShieldAlert, CheckCircle2, Grid, Loader2 } from 'lucide-react';
 import AdvancedSecurityMonitor from '../../components/student/SecurityMonitor';
 import Latex from 'react-latex-next';
 import 'katex/dist/katex.min.css';
@@ -25,73 +25,83 @@ const ExamSession = () => {
   // Timer & Security Refs
   const timerRef = useRef(null);
 
-  // 1. Inisialisasi Data (Load Soal dari Struktur Baru)
+  // 1. Inisialisasi Data (Load Soal dengan Fallback Kuat)
   useEffect(() => {
     if (!token) { navigate('/student'); return; }
 
     const initExam = async () => {
       try {
-        // A. Ambil Detail Token dulu dari Firestore
+        // A. Ambil Detail Token
         const tokenRef = doc(db, 'tokens', token);
         const tokenSnap = await getDoc(tokenRef);
 
         if (!tokenSnap.exists()) {
-          alert("Token tidak valid atau tidak ditemukan.");
-          navigate('/student');
-          return;
+          throw new Error("Token tidak ditemukan.");
         }
 
         const tokenData = tokenSnap.data();
 
         // Cek Status Token
         if (tokenData.status === 'used') {
-          alert("Token ini sudah digunakan!");
-          navigate('/student');
-          return;
+          throw new Error("Token ini sudah digunakan/selesai.");
         }
 
-        // B. Ambil Durasi dari Parent Exam Session
-        let examDuration = 30; // Default 30 menit
+        // B. Tentukan ID Sumber Soal (Logic Fallback Bertingkat)
+        let sourceId = tokenData.questionSourceId;
+        let examDuration = 30; // Default
+
+        // Ambil Data Sesi Induk (Exam Session) untuk Durasi & Fallback ID
         if (tokenData.examSessionId) {
             const sessionSnap = await getDoc(doc(db, 'exam_sessions', tokenData.examSessionId));
             if (sessionSnap.exists()) {
-                examDuration = sessionSnap.data().duration || 30;
+                const sData = sessionSnap.data();
+                examDuration = sData.duration || 30;
+
+                // FALLBACK 1: Jika di token kosong, ambil dari session
+                if (!sourceId && sData.questionSourceId) {
+                    sourceId = sData.questionSourceId;
+                }
+
+                // FALLBACK 2: Jika masih kosong, susun manual (Support Flexible Types)
+                if (!sourceId && sData.teacherId && sData.subjectId && sData.examType) {
+                    // Sanitasi harus sama dengan ExamManagement
+                    const cleanType = sData.examType.trim().replace(/\s+/g, '_').toLowerCase();
+                    sourceId = `${sData.teacherId}_${sData.subjectId}_${cleanType}`;
+                }
             }
         }
 
-        // C. Ambil Soal dari 'teacher_bank_soal' menggunakan ID Referensi
-        // ID ini (questionSourceId) sudah kita simpan saat Guru create exam
-        const sourceId = tokenData.questionSourceId;
-        
         if (!sourceId) {
-            throw new Error("Data soal tidak terhubung (Source ID Missing). Hubungi Guru.");
+            throw new Error("Gagal melacak ID Bank Soal. Hubungi Guru.");
         }
 
+        // C. Fetch Soal dari Bank Soal Guru
         const questionBankRef = doc(db, 'teacher_bank_soal', sourceId);
         const questionBankSnap = await getDoc(questionBankRef);
 
         if (!questionBankSnap.exists()) {
-            throw new Error("Paket soal tidak ditemukan di database.");
+            console.error("Target Doc ID Missing:", sourceId);
+            throw new Error(`Paket soal tidak ditemukan di Database.\n(ID: ${sourceId})\n\nMungkin guru belum membuat soal untuk tipe ini.`);
         }
 
         const qList = questionBankSnap.data().questions || [];
         
         if (qList.length === 0) {
-            throw new Error("Belum ada soal dalam paket ujian ini.");
+            throw new Error("Bank soal ini masih kosong.");
         }
         
-        // Acak Soal (Opsional, di sini kita acak)
+        // Acak Soal
         const shuffled = [...qList].sort(() => Math.random() - 0.5); 
         setQuestions(shuffled);
         
-        // Set Waktu (Menit -> Detik)
+        // Set Waktu
         setTimeLeft(examDuration * 60); 
         
         setScreen('countdown');
 
       } catch (error) {
-        console.error(error);
-        alert(`Gagal memuat ujian: ${error.message}`);
+        console.error("Exam Init Error:", error);
+        alert(error.message);
         navigate('/student');
       }
     };
@@ -145,16 +155,13 @@ const ExamSession = () => {
     if (screen === 'result' || screen === 'blocked') return;
     
     clearInterval(timerRef.current);
-    setScreen('loading'); // Sementara loading
+    setScreen('loading'); 
 
-    // Hitung Skor Sederhana (Benar +1)
+    // Hitung Skor
     let score = 0;
-    
-    // Pastikan questions ada isinya sebelum hitung
     if (questions.length > 0) {
         questions.forEach(q => {
             const userAnswer = answers[q.id];
-            // Pastikan correctAnswer ada dan match
             if (q.correctAnswer && userAnswer === q.correctAnswer) {
                 score += 1;
             }
@@ -175,7 +182,7 @@ const ExamSession = () => {
     } catch (error) {
         console.error(error);
         alert("Gagal menyimpan jawaban. Coba lagi.");
-        setScreen('test'); // Balikin ke test kalau gagal save
+        setScreen('test'); 
     }
   };
 
@@ -189,7 +196,7 @@ const ExamSession = () => {
 
   // --- RENDERERS ---
 
-  if (screen === 'loading') return <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div></div>;
+  if (screen === 'loading') return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-indigo-600" size={48}/></div>;
 
   // LAYAR 1: COUNTDOWN
   if (screen === 'countdown') {
@@ -211,7 +218,7 @@ const ExamSession = () => {
     );
   }
 
-  // LAYAR 2: BLOCKED / DISKUALIFIKASI
+  // LAYAR 2: BLOCKED
   if (screen === 'blocked') {
     return (
        <div className="min-h-screen bg-red-50 flex flex-col items-center justify-center p-6 text-center">
@@ -245,7 +252,6 @@ const ExamSession = () => {
   
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-       {/* Security Logic Aktif Disini */}
        <AdvancedSecurityMonitor isActive={true} onViolation={handleViolation} />
 
        {/* HEADER */}

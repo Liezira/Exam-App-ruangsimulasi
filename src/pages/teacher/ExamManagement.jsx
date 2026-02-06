@@ -24,7 +24,7 @@ const ExamManagement = () => {
     classId: '',
     duration: 60, 
     questionCount: 20,
-    examType: 'Latihan' // TAMBAHAN: Default tipe ujian
+    examType: 'Latihan' 
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -35,7 +35,7 @@ const ExamManagement = () => {
       if (!user) return;
 
       try {
-        // A. Ambil Data Guru & Mapelnya (Logic Smart Lookup)
+        // A. Ambil Data Guru & Mapelnya
         let tData = null;
         const docSnap = await getDoc(doc(db, 'users', user.uid));
         if (docSnap.exists()) tData = docSnap.data();
@@ -46,13 +46,11 @@ const ExamManagement = () => {
         }
 
         if (tData) {
-          // Normalisasi Subject IDs
           let sIds = [];
           if (Array.isArray(tData.subjectIds)) sIds = tData.subjectIds;
           else if (tData.subjectId) sIds = [tData.subjectId];
 
           if (sIds.length > 0) {
-            // Ambil detail nama mapel
             const subQuery = query(collection(db, 'subjects'), where('__name__', 'in', sIds));
             const subSnap = await getDocs(subQuery);
             const mySubjects = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -83,13 +81,15 @@ const ExamManagement = () => {
   const handleCreateExam = async (e) => {
     e.preventDefault();
     if (!activeSubjectId) return alert("Pilih mata pelajaran terlebih dahulu.");
+    if (!formData.examType.trim()) return alert("Tipe Ujian wajib diisi!");
     
     setIsSubmitting(true);
     try {
-      // TAMBAHAN: Generate ID Sumber Soal (questionSourceId)
-      // Format: IDGuru_IDMapel_TipeUjian
-      // Ini agar ExamSession siswa tau harus ambil soal dari dokumen mana di 'teacher_bank_soal'
-      const questionSourceId = `${auth.currentUser.uid}_${activeSubjectId}_${formData.examType}`;
+      // FIX: Sanitasi ID agar cocok dengan Bank Soal (lowercase + underscore)
+      const cleanType = formData.examType.trim().replace(/\s+/g, '_').toLowerCase();
+      
+      // Generate ID Sumber Soal: IDGuru_IDMapel_TipeUjianBersih
+      const questionSourceId = `${auth.currentUser.uid}_${activeSubjectId}_${cleanType}`;
 
       // A. Buat Sesi Ujian
       const examRef = await addDoc(collection(db, 'exam_sessions'), {
@@ -98,8 +98,9 @@ const ExamManagement = () => {
         name: formData.name,
         classId: formData.classId,
         duration: parseInt(formData.duration),
-        examType: formData.examType, // TAMBAHAN: Simpan tipe ujian
-        questionSourceId: questionSourceId, // TAMBAHAN: Simpan referensi ke bank soal
+        examType: formData.examType, // Simpan nama asli (Display)
+        cleanExamType: cleanType,    // Simpan ID bersih (Technical)
+        questionSourceId: questionSourceId, // Link ke Bank Soal
         createdAt: serverTimestamp(),
         status: 'active'
       });
@@ -129,10 +130,10 @@ const ExamManagement = () => {
           studentId: studentDoc.id,
           classId: formData.classId,
           examSubjectId: activeSubjectId, 
-          // TAMBAHAN: Simpan info penting di token juga untuk redundansi
+          // Simpan info penting di token juga untuk redundansi
           teacherId: auth.currentUser.uid, 
           examType: formData.examType, 
-          questionSourceId: questionSourceId,
+          questionSourceId: questionSourceId, // Critical Data for ExamSession
           status: 'active',
           score: null,
           createdAt: new Date().toISOString()
@@ -199,7 +200,7 @@ const ExamManagement = () => {
                 </div>
               </div>
               <button 
-                onClick={() => alert(`Token Ujian ini tersimpan di database. \n\nID: ${exam.id}\nMapel: ${getSubjectName(exam.subjectId)}\nTipe: ${exam.examType || 'Latihan'}`)}
+                onClick={() => alert(`Token Ujian ini tersimpan di database. \n\nID: ${exam.id}\nMapel: ${getSubjectName(exam.subjectId)}\nTipe: ${exam.examType || 'Latihan'}\nSourceID: ${exam.questionSourceId}`)}
                 className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2"
               >
                 <Ticket size={16}/> Cek Token
@@ -265,21 +266,26 @@ const ExamManagement = () => {
                 </select>
               </div>
 
-              {/* TAMBAHAN: TIPE UJIAN */}
+              {/* FIX: TIPE UJIAN (INPUT FLEXIBLE) */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Tipe Ujian (Bank Soal)</label>
-                <select 
-                  required 
-                  value={formData.examType} onChange={e => setFormData({...formData, examType: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="Latihan">Latihan</option>
-                  <option value="Ulangan">Ulangan</option>
-                  <option value="UTS">UTS</option>
-                  <option value="UAS">UAS</option>
-                  <option value="Tryout">Tryout</option>
-                </select>
-                <p className="text-[10px] text-gray-500 mt-1">*Soal akan diambil dari Bank Soal sesuai tipe yang dipilih.</p>
+                <input 
+                    required
+                    list="examTypeOptions"
+                    value={formData.examType} 
+                    onChange={e => setFormData({...formData, examType: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Ketik atau Pilih..."
+                />
+                <datalist id="examTypeOptions">
+                    <option value="Latihan" />
+                    <option value="Ulangan" />
+                    <option value="UTS" />
+                    <option value="UAS" />
+                    <option value="Tryout" />
+                    <option value="Remedial" />
+                </datalist>
+                <p className="text-[10px] text-gray-500 mt-1">*Harus sama persis dengan Kategori di Bank Soal.</p>
               </div>
 
               {/* DURASI & RANDOM PLACEHOLDER */}

@@ -92,24 +92,25 @@ const TeacherQuestionBank = () => {
   // 2. FUNGSI LOAD SOAL (OPTIMASI READS: 1 Dokumen Array)
   const handleLoadQuestions = async () => {
     if (!selectedSubject) return alert("Pilih Mata Pelajaran dulu!");
+    if (!selectedExamType.trim()) return alert("Tipe Ujian tidak boleh kosong!");
     
     setIsLoadingData(true);
     setQuestions([]); 
 
     try {
-      // Logic ID: USER_ID + MAPEL_ID + TIPE_UJIAN
-      // Ini membuat kita hanya perlu membaca 1 Dokumen saja.
-      const docId = `${auth.currentUser.uid}_${selectedSubject}_${selectedExamType}`;
+      // FIX: Sanitasi ID agar fleksibel (lower case + ganti spasi dengan underscore)
+      const cleanType = selectedExamType.trim().replace(/\s+/g, '_').toLowerCase();
+      
+      // Logic ID: USER_ID + MAPEL_ID + TIPE_UJIAN_BERSIH
+      const docId = `${auth.currentUser.uid}_${selectedSubject}_${cleanType}`;
       const docRef = doc(db, 'teacher_bank_soal', docId);
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
-        // Data tersimpan dalam array 'questions' di dalam dokumen
         const data = docSnap.data().questions || [];
-        // Sort descending by created (optional, krn array biasanya berurutan insert)
         setQuestions(data.sort((a,b) => b.createdAt - a.createdAt));
       } else {
-        setQuestions([]); // Belum ada dokumen, berarti kosong
+        setQuestions([]); 
       }
 
     } catch (error) {
@@ -126,7 +127,7 @@ const TeacherQuestionBank = () => {
       setEditingId(question.id);
       setFormData({
         type: question.type,
-        examType: question.examType || selectedExamType, // PENTING: Ikuti examType soal atau filter aktif
+        examType: question.examType || selectedExamType, 
         question: question.question,
         options: question.options || ['', '', '', '', ''],
         correctAnswer: question.correctAnswer,
@@ -136,7 +137,7 @@ const TeacherQuestionBank = () => {
       setEditingId(null);
       setFormData({
         type: 'pilihan_ganda',
-        examType: selectedExamType, // Default ikut filter yang sedang dibuka
+        examType: selectedExamType, 
         question: '',
         options: ['', '', '', '', ''],
         correctAnswer: 'A',
@@ -160,54 +161,53 @@ const TeacherQuestionBank = () => {
 
   const handleSaveManual = async () => {
     if (!formData.question) return alert("Pertanyaan wajib diisi!");
+    if (!formData.examType.trim()) return alert("Tipe Ujian wajib diisi!");
     if (formData.type === 'pilihan_ganda' && formData.options.some(opt => !opt)) return alert("Semua opsi A-E wajib diisi!");
 
     setIsLoadingData(true); 
     try {
+      // FIX: Sanitasi Tipe Ujian target
+      const cleanType = formData.examType.trim().replace(/\s+/g, '_').toLowerCase();
+      
       // 1. Tentukan Dokumen Target
-      const targetExamType = formData.examType; 
-      const docId = `${auth.currentUser.uid}_${selectedSubject}_${targetExamType}`;
+      const docId = `${auth.currentUser.uid}_${selectedSubject}_${cleanType}`;
       const docRef = doc(db, 'teacher_bank_soal', docId);
 
-      // 2. Ambil Data Lama (Read dulu untuk update array)
+      // 2. Ambil Data Lama 
       const docSnap = await getDoc(docRef);
       let currentQuestions = docSnap.exists() ? (docSnap.data().questions || []) : [];
 
       const newQuestionData = {
-        id: editingId || Date.now().toString(), // ID unik untuk soal
+        id: editingId || Date.now().toString(), 
         ...formData,
+        examType: formData.examType, // Simpan nama asli (display)
+        cleanExamType: cleanType,    // Simpan ID bersih (opsional)
         teacherId: auth.currentUser.uid,
         subjectId: selectedSubject,
         createdAt: editingId ? (questions.find(q=>q.id===editingId)?.createdAt || Date.now()) : Date.now()
       };
 
       if (editingId) {
-        // UPDATE: Cari index dan ganti
-        // Cek apakah ExamType berubah? Jika berubah, kita harus hapus dari doc lama dan pindah ke doc baru.
-        // Untuk simplifikasi: Kita asumsikan edit manual hanya terjadi di examType yang sama.
-        // Jika user mengubah examType di modal, logika ini perlu handle deleteDocLama -> setDocBaru.
-        // Disini kita update array lokal saja:
         const index = currentQuestions.findIndex(q => q.id === editingId);
         if (index !== -1) {
             currentQuestions[index] = newQuestionData;
         }
       } else {
-        // CREATE: Push ke array
-        currentQuestions.unshift(newQuestionData); // Taruh paling atas
+        currentQuestions.unshift(newQuestionData); 
       }
 
-      // 3. Simpan Kembali (Write 1 Dokumen)
+      // 3. Simpan Kembali
       await setDoc(docRef, { questions: currentQuestions }, { merge: true });
 
       alert("✅ Soal berhasil disimpan!");
       setIsModalOpen(false);
       
-      // Jika tipe ujian yang diedit == tipe ujian yang sedang dilihat, refresh tampilan
-      if (targetExamType === selectedExamType) {
+      // Refresh jika tipe ujian yang diedit sama dengan yang sedang dilihat
+      const currentCleanType = selectedExamType.trim().replace(/\s+/g, '_').toLowerCase();
+      if (cleanType === currentCleanType) {
           handleLoadQuestions();
       } else {
-          // Jika user menyimpan soal UTS padahal sedang lihat Latihan
-          alert(`Soal tersimpan di kategori ${targetExamType}. Silakan ganti filter untuk melihatnya.`);
+          alert(`Soal tersimpan di kategori "${formData.examType}". Ganti filter untuk melihatnya.`);
           setIsLoadingData(false);
       }
 
@@ -222,10 +222,11 @@ const TeacherQuestionBank = () => {
     if (!confirm("Yakin hapus soal ini?")) return;
     setIsLoadingData(true);
     try {
-      const docId = `${auth.currentUser.uid}_${selectedSubject}_${selectedExamType}`;
+      // FIX: Sanitasi ID
+      const cleanType = selectedExamType.trim().replace(/\s+/g, '_').toLowerCase();
+      const docId = `${auth.currentUser.uid}_${selectedSubject}_${cleanType}`;
       const docRef = doc(db, 'teacher_bank_soal', docId);
       
-      // Filter array client side lalu update
       const newQuestions = questions.filter(q => q.id !== id);
       
       await updateDoc(docRef, { questions: newQuestions });
@@ -251,7 +252,7 @@ const TeacherQuestionBank = () => {
       },
       {
         "Tipe (PG/ISIAN)": "ISIAN",
-        "Klasifikasi (Latihan/UTS/UAS)": "UTS",
+        "Klasifikasi (Latihan/UTS/UAS)": "Remedial Bab 1",
         "Pertanyaan": "Hasil dari 5 x 5 adalah...",
         "Opsi A": "-", "Opsi B": "-", "Opsi C": "-", "Opsi D": "-", "Opsi E": "-",
         "Kunci Jawaban": "25"
@@ -278,7 +279,7 @@ const TeacherQuestionBank = () => {
       const parsed = data.map((row, idx) => {
         const type = row["Tipe (PG/ISIAN)"]?.toString().toUpperCase().includes("ISIAN") ? 'isian' : 'pilihan_ganda';
         return {
-            id: `import_${Date.now()}_${idx}`, // Generate ID unik sementara
+            id: `import_${Date.now()}_${idx}`, 
             type,
             examType: row["Klasifikasi (Latihan/UTS/UAS)"] || 'Latihan',
             question: row["Pertanyaan"] || "",
@@ -304,14 +305,19 @@ const TeacherQuestionBank = () => {
 
     setIsImporting(true);
     try {
-        // 1. Grouping Data by Exam Type (Agar hemat writes & reads)
+        // 1. Grouping Data by Exam Type
         const groupedData = {};
         validData.forEach(item => {
-            if (!groupedData[item.examType]) groupedData[item.examType] = [];
-            groupedData[item.examType].push({
+            const rawType = item.examType;
+            // FIX: Gunakan clean key untuk grouping
+            const cleanKey = rawType.trim().replace(/\s+/g, '_').toLowerCase();
+            
+            if (!groupedData[cleanKey]) groupedData[cleanKey] = [];
+            
+            groupedData[cleanKey].push({
                 id: item.id,
                 type: item.type,
-                examType: item.examType,
+                examType: rawType, // Simpan nama asli
                 question: item.question,
                 options: item.options,
                 correctAnswer: item.correctAnswer,
@@ -322,16 +328,15 @@ const TeacherQuestionBank = () => {
             });
         });
 
-        // 2. Process per Group (Read -> Merge -> Write)
-        const promises = Object.keys(groupedData).map(async (examType) => {
-            const docId = `${auth.currentUser.uid}_${selectedSubject}_${examType}`;
+        // 2. Process per Group
+        const promises = Object.keys(groupedData).map(async (cleanKey) => {
+            const docId = `${auth.currentUser.uid}_${selectedSubject}_${cleanKey}`;
             const docRef = doc(db, 'teacher_bank_soal', docId);
             
             const docSnap = await getDoc(docRef);
             let existingQuestions = docSnap.exists() ? (docSnap.data().questions || []) : [];
             
-            // Gabungkan data lama + data baru import
-            const mergedQuestions = [...existingQuestions, ...groupedData[examType]];
+            const mergedQuestions = [...existingQuestions, ...groupedData[cleanKey]];
             
             return setDoc(docRef, { questions: mergedQuestions }, { merge: true });
         });
@@ -341,7 +346,7 @@ const TeacherQuestionBank = () => {
         alert(`Sukses import ${validData.length} soal!`);
         setIsImportModalOpen(false);
         setPreviewImport([]);
-        handleLoadQuestions(); // Refresh tampilan
+        handleLoadQuestions(); 
     } catch (error) {
         console.error(error);
         alert("Gagal import data.");
@@ -353,7 +358,7 @@ const TeacherQuestionBank = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       
-      {/* 1. FILTER BAR & HEADER (Kontrol Utama untuk Optimasi Reads) */}
+      {/* 1. FILTER BAR & HEADER */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
@@ -361,7 +366,6 @@ const TeacherQuestionBank = () => {
             <p className="text-gray-500 text-sm">Pilih Mapel & Tipe Ujian untuk memuat soal.</p>
           </div>
           
-          {/* TOMBOL LOAD DATA (OPTIMASI READS) */}
           <button 
             onClick={handleLoadQuestions}
             disabled={isLoadingData || !selectedSubject}
@@ -372,7 +376,6 @@ const TeacherQuestionBank = () => {
           </button>
         </div>
 
-        {/* AREA FILTER */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
             {/* Filter Mapel */}
@@ -389,7 +392,7 @@ const TeacherQuestionBank = () => {
                 </select>
             </div>
 
-            {/* Filter Kelas (Opsional, tapi diminta user) */}
+            {/* Filter Kelas */}
             <div className="relative">
                 <label className="text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><LayoutGrid size={12}/> Kelas Target</label>
                 <select 
@@ -403,25 +406,30 @@ const TeacherQuestionBank = () => {
                 </select>
             </div>
 
-            {/* Filter Tipe Ujian (String Classification) */}
+            {/* FIX: Filter Tipe Ujian (FLEXIBLE INPUT) */}
             <div className="relative">
                 <label className="text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><Calendar size={12}/> Klasifikasi Soal</label>
-                <select 
+                <input 
+                    list="examTypeOptions"
+                    type="text"
                     value={selectedExamType} 
                     onChange={e => setSelectedExamType(e.target.value)}
                     className="w-full p-3 border rounded-xl bg-gray-50 font-medium text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                    <option value="Latihan">Latihan</option>
-                    <option value="Ulangan">Ulangan Harian</option>
-                    <option value="UTS">UTS (Tengah Semester)</option>
-                    <option value="UAS">UAS (Akhir Semester)</option>
-                    <option value="Tryout">Tryout</option>
-                </select>
+                    placeholder="Ketik atau Pilih..."
+                />
+                <datalist id="examTypeOptions">
+                    <option value="Latihan" />
+                    <option value="Ulangan" />
+                    <option value="UTS" />
+                    <option value="UAS" />
+                    <option value="Tryout" />
+                    <option value="Remedial" />
+                </datalist>
             </div>
         </div>
       </div>
 
-      {/* 2. ACTION BAR (Tambah & Import) */}
+      {/* 2. ACTION BAR */}
       <div className="flex flex-wrap gap-3 items-center">
         <button 
             onClick={() => handleOpenModal()} 
@@ -480,7 +488,6 @@ const TeacherQuestionBank = () => {
                                 </span>
                             </div>
                             
-                            {/* ACTION BUTTONS */}
                             <div className="flex gap-2">
                                 <button 
                                   onClick={() => setPreviewQuestion(q)} 
@@ -494,7 +501,6 @@ const TeacherQuestionBank = () => {
                             </div>
                         </div>
 
-                        {/* Question Content */}
                         <div className="mb-4 text-gray-800 text-base">
                             <Latex>{q.question}</Latex>
                         </div>
@@ -503,7 +509,6 @@ const TeacherQuestionBank = () => {
                             <img src={q.image} alt="Soal" className="max-h-40 rounded border mb-4"/>
                         )}
 
-                        {/* Kunci Jawaban (Teacher View Only) */}
                         <div className="text-sm text-green-700 font-bold flex items-center gap-2 bg-green-50 w-fit px-3 py-1 rounded border border-green-200">
                             <CheckCircle2 size={14}/> Kunci: {q.correctAnswer}
                         </div>
@@ -526,7 +531,6 @@ const TeacherQuestionBank = () => {
                 </div>
                 
                 <div className="p-6 space-y-6">
-                    {/* Tipe Soal & Klasifikasi */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                              <label className="text-xs font-bold text-gray-500 uppercase">Tipe Jawaban</label>
@@ -541,23 +545,27 @@ const TeacherQuestionBank = () => {
                                 </label>
                              </div>
                         </div>
+                        {/* FIX: INPUT TIPE UJIAN DI MODAL */}
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-gray-500 uppercase">Klasifikasi</label>
-                            <select 
+                            <input 
+                                list="examTypeOptionsModal"
                                 value={formData.examType} 
                                 onChange={e => setFormData({...formData, examType: e.target.value})}
                                 className="w-full p-2.5 border rounded-lg font-bold text-gray-700 outline-none"
-                            >
-                                <option value="Latihan">Latihan</option>
-                                <option value="Ulangan">Ulangan</option>
-                                <option value="UTS">UTS</option>
-                                <option value="UAS">UAS</option>
-                                <option value="Tryout">Tryout</option>
-                            </select>
+                                placeholder="Ketik atau Pilih..."
+                            />
+                            <datalist id="examTypeOptionsModal">
+                                <option value="Latihan" />
+                                <option value="Ulangan" />
+                                <option value="UTS" />
+                                <option value="UAS" />
+                                <option value="Tryout" />
+                                <option value="Remedial" />
+                            </datalist>
                         </div>
                     </div>
 
-                    {/* Editor Soal */}
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-2">Pertanyaan (Support LaTeX $...$)</label>
                         <textarea 
@@ -573,7 +581,6 @@ const TeacherQuestionBank = () => {
                         </div>
                     </div>
 
-                    {/* Gambar */}
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-2">Gambar (Opsional)</label>
                         <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
@@ -585,7 +592,6 @@ const TeacherQuestionBank = () => {
                         )}
                     </div>
 
-                    {/* Opsi / Jawaban */}
                     {formData.type === 'pilihan_ganda' ? (
                         <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
                             <p className="text-xs font-bold text-gray-500 uppercase mb-2">Opsi Jawaban & Kunci</p>
@@ -635,7 +641,7 @@ const TeacherQuestionBank = () => {
         </div>
       )}
 
-      {/* --- MODAL 2: PREVIEW SISWA (NEW) --- */}
+      {/* --- MODAL 2: PREVIEW SISWA --- */}
       {previewQuestion && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
              <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -645,7 +651,6 @@ const TeacherQuestionBank = () => {
                 </div>
                 
                 <div className="p-8 max-h-[70vh] overflow-y-auto">
-                    {/* Simulasi Card Soal */}
                     <div className="border border-gray-200 rounded-xl p-6 shadow-sm">
                         <div className="mb-4 text-lg text-gray-800 leading-relaxed font-medium">
                             <Latex>{previewQuestion.question}</Latex>
