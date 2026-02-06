@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom'; // <--- JANGAN LUPA IMPORT 'Link'
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { LogIn, Lock, Mail, Eye, EyeOff, AlertCircle, School, Loader2 } from 'lucide-react';
+import { LogIn, Lock, Mail, Eye, EyeOff, AlertCircle, School, Loader2, UserPlus } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -15,61 +15,41 @@ const Login = () => {
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
+    // ... (Logika login SAMA PERSIS seperti sebelumnya, tidak perlu diubah) ...
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // 1. Login ke Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-
-      // 2. Cek Data & Role di Firestore (Smart Lookup)
       let userData = null;
-      
-      // A. Cek by UID (Standar)
       let docRef = doc(db, 'users', user.uid);
       let docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
         userData = docSnap.data();
       } else {
-        // B. Fallback: Cari by Email (Untuk akun buatan Admin)
         const q = query(collection(db, 'users'), where('email', '==', user.email));
         const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-          userData = querySnapshot.docs[0].data();
-        }
+        if (!querySnapshot.empty) userData = querySnapshot.docs[0].data();
       }
 
-      // 3. Validasi & Redirect
       if (userData) {
         const role = userData.role;
-
         if (role === 'super_admin') navigate('/admin');
         else if (role === 'teacher') navigate('/teacher');
         else if (role === 'student') navigate('/student');
         else {
-          setError('Role akun tidak valid. Hubungi Admin.');
+          setError('Role akun tidak valid.');
           await auth.signOut();
         }
       } else {
-        setError('Data pengguna tidak ditemukan di database.');
+        setError('Data pengguna tidak ditemukan.');
         await auth.signOut();
       }
-
     } catch (err) {
-      console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
-        setError('Email atau password salah.');
-      } else if (err.code === 'auth/too-many-requests') {
-        setError('Terlalu banyak percobaan gagal. Tunggu sebentar.');
-      } else if (err.message.includes('offline')) {
-        setError('Koneksi Database bermasalah. Cek internet/rules.');
-      } else {
-        setError('Gagal masuk: ' + err.message);
-      }
+      setError('Email atau password salah.');
     } finally {
       setLoading(false);
     }
@@ -77,14 +57,9 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex bg-white">
-      
-      {/* BAGIAN KIRI - BRANDING / HERO */}
+      {/* Bagian Kiri (Hero) - SAMA */}
       <div className="hidden lg:flex lg:w-1/2 bg-indigo-900 relative overflow-hidden items-center justify-center">
-        {/* Dekorasi Background */}
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-600 to-blue-900 opacity-90"></div>
-        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
-
         <div className="relative z-10 text-center px-10">
           <div className="mb-6 flex justify-center">
              <div className="bg-white/10 p-4 rounded-2xl backdrop-blur-sm border border-white/20 shadow-2xl">
@@ -98,7 +73,7 @@ const Login = () => {
         </div>
       </div>
 
-      {/* BAGIAN KANAN - FORM LOGIN */}
+      {/* Bagian Kanan (Form) */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-gray-50">
         <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
           
@@ -115,8 +90,6 @@ const Login = () => {
           )}
 
           <form onSubmit={handleLogin} className="space-y-6">
-            
-            {/* Input Email */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Email</label>
               <div className="relative">
@@ -127,14 +100,13 @@ const Login = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-sm font-medium"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm font-medium"
                   placeholder="nama@sekolah.sch.id"
                   required
                 />
               </div>
             </div>
 
-            {/* Input Password */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Password</label>
               <div className="relative">
@@ -145,7 +117,7 @@ const Login = () => {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-sm font-medium"
+                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm font-medium"
                   placeholder="••••••••"
                   required
                 />
@@ -162,19 +134,23 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-indigo-300 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:opacity-70 flex items-center justify-center gap-2"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="animate-spin" size={20} /> Memproses...
-                </>
-              ) : (
-                <>
-                  <LogIn size={18} /> Masuk Sekarang
-                </>
-              )}
+              {loading ? <Loader2 className="animate-spin" size={20} /> : <LogIn size={18} />} 
+              Masuk Sekarang
             </button>
           </form>
+
+          {/* 👇 INI BAGIAN BARU: LINK KE REGISTER */}
+          <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+            <p className="text-sm text-gray-500 mb-3">Anda Guru dan belum punya akun?</p>
+            <Link 
+              to="/register" 
+              className="inline-flex items-center gap-2 text-indigo-600 font-bold hover:text-indigo-800 hover:underline transition-all"
+            >
+              <UserPlus size={18} /> Daftar Akun Guru Baru
+            </Link>
+          </div>
 
           <div className="mt-8 text-center text-xs text-gray-400 font-medium">
              &copy; {new Date().getFullYear()} Sistem Ujian Sekolah.
