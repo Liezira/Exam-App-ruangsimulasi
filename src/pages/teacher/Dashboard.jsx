@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { auth, db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs, getCountFromServer } from 'firebase/firestore'; // Update Import
 import { BookOpen, FileQuestion, GraduationCap, Loader2, AlertTriangle } from 'lucide-react';
+import PageTransition from '../../components/PageTransition';
 
 const TeacherDashboard = () => {
   const [profile, setProfile] = useState(null);
@@ -60,6 +61,7 @@ const TeacherDashboard = () => {
   if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-indigo-600"/></div>;
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
@@ -105,6 +107,7 @@ const TeacherDashboard = () => {
         </div>
       </div>
     </div>
+    </PageTransition>
   );
 };
 
