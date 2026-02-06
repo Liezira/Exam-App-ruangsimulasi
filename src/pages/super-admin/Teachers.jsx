@@ -4,7 +4,7 @@ import {
   collection, doc, setDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp 
 } from 'firebase/firestore';
 import { 
-  Plus, Search, Pencil, Trash2, User, X, Save, Loader2, AlertCircle, Mail, Phone, BookOpen 
+  Plus, Search, Pencil, Trash2, X, Save, Loader2, Mail, Phone, BookOpen 
 } from 'lucide-react';
 
 const Teachers = () => {
@@ -16,13 +16,13 @@ const Teachers = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   
-  // Form Data Guru
+  // PERUBAHAN 1: subjectIds adalah Array [] bukan String ''
   const [formData, setFormData] = useState({ 
-    email: '', displayName: '', phone: '', nip: '', subjectId: '' 
+    email: '', displayName: '', phone: '', nip: '', subjectIds: [] 
   });
+  const [selectedSubject, setSelectedSubject] = useState(''); // State sementara untuk dropdown
   const [isSaving, setIsSaving] = useState(false);
 
-  // 1. Fetch Teachers (Users where role == 'teacher')
   useEffect(() => {
     const q = query(collection(db, 'users'), where('role', '==', 'teacher')); 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -33,21 +33,19 @@ const Teachers = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch Subjects (Untuk Dropdown Pilihan)
   useEffect(() => {
     const q = query(collection(db, 'subjects'), orderBy('name', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSubjects(data);
+      setSubjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
   }, []);
 
-  // 3. Handle Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsSaving(true);
+    if (formData.subjectIds.length === 0) return alert("Pilih minimal satu mata pelajaran!");
     
+    setIsSaving(true);
     try {
       const payload = {
         role: 'teacher',
@@ -55,7 +53,7 @@ const Teachers = () => {
         email: formData.email,
         phone: formData.phone,
         nip: formData.nip,
-        subjectId: formData.subjectId, 
+        subjectIds: formData.subjectIds, // Kita simpan Array
         updatedAt: serverTimestamp()
       };
 
@@ -67,201 +65,146 @@ const Teachers = () => {
            ...payload,
            createdAt: serverTimestamp()
          });
-         alert("Data Guru tersimpan!");
       }
       closeModal();
     } catch (error) {
-      console.error("Error saving teacher:", error);
-      alert("Gagal menyimpan data guru.");
+      console.error(error);
+      alert("Gagal menyimpan data.");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Hapus data guru ini?')) {
-      await deleteDoc(doc(db, 'users', id));
-    }
+    if (confirm('Hapus data guru ini?')) await deleteDoc(doc(db, 'users', id));
   };
 
-  // Helpers
+  // LOGIC BARU: Tambah Mapel ke List
+  const handleAddSubject = () => {
+    if (!selectedSubject) return;
+    if (!formData.subjectIds.includes(selectedSubject)) {
+      setFormData({ ...formData, subjectIds: [...formData.subjectIds, selectedSubject] });
+    }
+    setSelectedSubject('');
+  };
+
+  // LOGIC BARU: Hapus Mapel dari List
+  const handleRemoveSubject = (idToRemove) => {
+    setFormData({
+      ...formData,
+      subjectIds: formData.subjectIds.filter(id => id !== idToRemove)
+    });
+  };
+
   const openModal = (teacher = null) => {
     if (teacher) {
       setEditingId(teacher.id);
+      // Support data lama (kalau dulu pake string, kita ubah jadi array biar ga error)
+      let currentSubjects = teacher.subjectIds || [];
+      if (!teacher.subjectIds && teacher.subjectId) currentSubjects = [teacher.subjectId];
+
       setFormData({ 
-        email: teacher.email, 
-        displayName: teacher.displayName, 
-        phone: teacher.phone || '', 
-        nip: teacher.nip || '',
-        subjectId: teacher.subjectId || ''
+        email: teacher.email, displayName: teacher.displayName, phone: teacher.phone || '', 
+        nip: teacher.nip || '', subjectIds: currentSubjects 
       });
     } else {
       setEditingId(null);
-      setFormData({ email: '', displayName: '', phone: '', nip: '', subjectId: '' });
+      setFormData({ email: '', displayName: '', phone: '', nip: '', subjectIds: [] });
     }
     setIsModalOpen(true);
   };
 
-  const closeModal = () => { setIsModalOpen(false); };
+  const closeModal = () => setIsModalOpen(false);
 
-  const getSubjectName = (id) => {
-    const sub = subjects.find(s => s.id === id);
-    return sub ? sub.name : '-';
+  // Helper untuk menampilkan nama mapel banyak sekaligus
+  const getSubjectNames = (ids) => {
+    if (!ids || !Array.isArray(ids)) return '-';
+    return ids.map(id => subjects.find(s => s.id === id)?.name).filter(Boolean).join(', ');
   };
 
   const filteredTeachers = teachers.filter(t => 
-    (t.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (t.email || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (t.displayName || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">Data Guru</h2>
-          <p className="text-gray-500 text-sm">Kelola profil guru dan penugasan mata pelajaran.</p>
-        </div>
-        <button 
-          onClick={() => openModal()}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition shadow-sm"
-        >
-          <Plus size={18} /> Tambah Guru
-        </button>
+      <div className="flex justify-between items-center">
+        <div><h2 className="text-2xl font-bold">Data Guru</h2><p className="text-gray-500 text-sm">Kelola Guru Multi-Mapel</p></div>
+        <button onClick={() => openModal()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex gap-2"><Plus size={18}/> Tambah Guru</button>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+      <div className="bg-white p-4 rounded-xl border flex items-center gap-3">
         <Search size={20} className="text-gray-400" />
-        <input 
-          type="text" 
-          placeholder="Cari Nama Guru atau Email..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="flex-1 outline-none text-gray-700 placeholder-gray-400 text-sm"
-        />
+        <input type="text" placeholder="Cari Guru..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="flex-1 outline-none"/>
       </div>
 
-      {loading ? (
-         <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredTeachers.map((item) => (
-            <div key={item.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition relative group">
-              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => openModal(item)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Pencil size={16}/></button>
-                <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><Trash2 size={16}/></button>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {filteredTeachers.map((item) => (
+          <div key={item.id} className="bg-white rounded-xl border p-6 hover:shadow-md relative group">
+             <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                <button onClick={() => openModal(item)} className="p-2 bg-blue-50 text-blue-600 rounded"><Pencil size={16}/></button>
+                <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-50 text-red-600 rounded"><Trash2 size={16}/></button>
               </div>
-
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl">
-                  {item.displayName ? item.displayName.charAt(0).toUpperCase() : '?'}
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-800 line-clamp-1">{item.displayName}</h3>
-                  <div className="text-xs text-indigo-600 font-medium bg-indigo-50 px-2 py-0.5 rounded w-fit mt-1">
-                     NIP: {item.nip || '-'}
-                  </div>
-                </div>
+                <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl">{item.displayName?.[0]}</div>
+                <div><h3 className="font-bold">{item.displayName}</h3><div className="text-xs bg-indigo-50 text-indigo-600 px-2 rounded w-fit">{item.nip || '-'}</div></div>
               </div>
-
-              <div className="space-y-2 text-sm text-gray-600 border-t pt-4">
-                <div className="flex items-center gap-2">
-                  <Mail size={16} className="text-gray-400" />
-                  <span className="truncate">{item.email}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone size={16} className="text-gray-400" />
-                  <span>{item.phone || '-'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <BookOpen size={16} className="text-gray-400" />
-                  <span className="font-bold text-gray-800">Mapel: {getSubjectName(item.subjectId)}</span>
-                </div>
+              <div className="border-t pt-4 space-y-2 text-sm text-gray-600">
+                 <div className="flex gap-2"><Mail size={16}/> {item.email}</div>
+                 <div className="flex gap-2"><Phone size={16}/> {item.phone || '-'}</div>
+                 <div className="flex gap-2 items-start">
+                    <BookOpen size={16} className="mt-1 shrink-0"/> 
+                    <span className="font-bold text-gray-800">
+                      {/* Handle Tampilan Multi ID */}
+                      {item.subjectIds ? getSubjectNames(item.subjectIds) : getSubjectNames([item.subjectId])}
+                    </span>
+                 </div>
               </div>
-            </div>
-          ))}
-          {filteredTeachers.length === 0 && (
-             <div className="col-span-full p-8 text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
-               Data Guru Kosong
-             </div>
-          )}
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-800">{editingId ? 'Edit Profil Guru' : 'Tambah Guru Baru'}</h3>
-              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden animate-in zoom-in">
+            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold">Form Data Guru</h3>
+              <button onClick={closeModal}><X size={20}/></button>
             </div>
-            
-            <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Nama Lengkap</label>
-                <input 
-                  type="text" required placeholder="Contoh: Budi Santoso, S.Kom"
-                  value={formData.displayName}
-                  onChange={(e) => setFormData({...formData, displayName: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Email</label>
-                <input 
-                  type="email" required placeholder="guru@sekolah.sch.id"
-                  value={formData.email}
-                  disabled={!!editingId} 
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  className={`w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 ${editingId ? 'bg-gray-100 text-gray-500' : ''}`}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">NIP / ID</label>
-                <input 
-                  type="text" placeholder="19823xxx"
-                  value={formData.nip}
-                  onChange={(e) => setFormData({...formData, nip: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <input type="text" placeholder="Nama Lengkap" required value={formData.displayName} onChange={e=>setFormData({...formData, displayName: e.target.value})} className="w-full p-3 border rounded-lg"/>
+              <input type="email" placeholder="Email" required disabled={!!editingId} value={formData.email} onChange={e=>setFormData({...formData, email: e.target.value})} className="w-full p-3 border rounded-lg disabled:bg-gray-100"/>
+              <div className="grid grid-cols-2 gap-4">
+                 <input type="text" placeholder="NIP" value={formData.nip} onChange={e=>setFormData({...formData, nip: e.target.value})} className="w-full p-3 border rounded-lg"/>
+                 <input type="text" placeholder="No HP" value={formData.phone} onChange={e=>setFormData({...formData, phone: e.target.value})} className="w-full p-3 border rounded-lg"/>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">No HP</label>
-                <input 
-                  type="text" placeholder="0812xxx"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+              {/* AREA MULTI MAPEL (Sistem Tagging) */}
+              <div className="bg-gray-50 p-4 rounded-lg border">
+                <label className="block text-xs font-bold uppercase mb-2">Mata Pelajaran Diampu</label>
+                <div className="flex gap-2 mb-3">
+                    <select value={selectedSubject} onChange={e=>setSelectedSubject(e.target.value)} className="flex-1 p-2 border rounded">
+                        <option value="">-- Pilih Mapel --</option>
+                        {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <button type="button" onClick={handleAddSubject} className="bg-indigo-600 text-white px-3 rounded font-bold"><Plus/></button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {formData.subjectIds.map(id => {
+                        const subName = subjects.find(s=>s.id===id)?.name;
+                        return (
+                            <span key={id} className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2">
+                                {subName} <button type="button" onClick={()=>handleRemoveSubject(id)} className="hover:text-red-500"><X size={14}/></button>
+                            </span>
+                        )
+                    })}
+                    {formData.subjectIds.length === 0 && <span className="text-gray-400 text-xs italic">Belum ada mapel dipilih.</span>}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Mapel</label>
-                <select 
-                  value={formData.subjectId}
-                  onChange={(e) => setFormData({...formData, subjectId: e.target.value})}
-                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                  required
-                >
-                  <option value="">-- Pilih Mapel --</option>
-                  {subjects.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-2 pt-4 flex gap-3">
-                <button type="button" onClick={closeModal} className="flex-1 py-3 border border-gray-300 text-gray-700 font-bold rounded-xl hover:bg-gray-50">Batal</button>
-                <button 
-                  type="submit" 
-                  disabled={isSaving}
-                  className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-200 flex justify-center items-center gap-2"
-                >
-                  {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} Simpan
-                </button>
-              </div>
+              <button type="submit" disabled={isSaving} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex justify-center gap-2">
+                 {isSaving ? <Loader2 className="animate-spin"/> : <Save/>} Simpan Data
+              </button>
             </form>
           </div>
         </div>
