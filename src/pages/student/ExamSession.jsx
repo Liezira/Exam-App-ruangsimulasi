@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
-import { doc, getDoc, updateDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore';
-import { Clock, AlertTriangle, ShieldAlert, CheckCircle2, List, Grid } from 'lucide-react';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Clock, ShieldAlert, CheckCircle2, Grid } from 'lucide-react';
 import AdvancedSecurityMonitor from '../../components/student/SecurityMonitor';
 import Latex from 'react-latex-next';
 import 'katex/dist/katex.min.css';
@@ -10,6 +10,7 @@ import 'katex/dist/katex.min.css';
 const ExamSession = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  // Token string & nama dikirim dari dashboard
   const { token, studentName } = location.state || {};
 
   // --- STATE ---
@@ -24,28 +25,73 @@ const ExamSession = () => {
   // Timer & Security Refs
   const timerRef = useRef(null);
 
-  // 1. Inisialisasi Data (Load Soal)
+  // 1. Inisialisasi Data (Load Soal dari Struktur Baru)
   useEffect(() => {
     if (!token) { navigate('/student'); return; }
 
     const initExam = async () => {
       try {
-        // A. Ambil semua soal dari bank_soal (Bisa difilter by SubjectId jika Token punya data subject)
-        // Disini kita ambil SEMUA soal untuk demo, idealnya difilter.
-        const qSnap = await getDocs(collection(db, 'bank_soal'));
-        const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // A. Ambil Detail Token dulu dari Firestore
+        const tokenRef = doc(db, 'tokens', token);
+        const tokenSnap = await getDoc(tokenRef);
+
+        if (!tokenSnap.exists()) {
+          alert("Token tidak valid atau tidak ditemukan.");
+          navigate('/student');
+          return;
+        }
+
+        const tokenData = tokenSnap.data();
+
+        // Cek Status Token
+        if (tokenData.status === 'used') {
+          alert("Token ini sudah digunakan!");
+          navigate('/student');
+          return;
+        }
+
+        // B. Ambil Durasi dari Parent Exam Session
+        let examDuration = 30; // Default 30 menit
+        if (tokenData.examSessionId) {
+            const sessionSnap = await getDoc(doc(db, 'exam_sessions', tokenData.examSessionId));
+            if (sessionSnap.exists()) {
+                examDuration = sessionSnap.data().duration || 30;
+            }
+        }
+
+        // C. Ambil Soal dari 'teacher_bank_soal' menggunakan ID Referensi
+        // ID ini (questionSourceId) sudah kita simpan saat Guru create exam
+        const sourceId = tokenData.questionSourceId;
         
-        // Acak Soal
-        const shuffled = allQuestions.sort(() => Math.random() - 0.5).slice(0, 20); // Ambil 20 soal acak
+        if (!sourceId) {
+            throw new Error("Data soal tidak terhubung (Source ID Missing). Hubungi Guru.");
+        }
+
+        const questionBankRef = doc(db, 'teacher_bank_soal', sourceId);
+        const questionBankSnap = await getDoc(questionBankRef);
+
+        if (!questionBankSnap.exists()) {
+            throw new Error("Paket soal tidak ditemukan di database.");
+        }
+
+        const qList = questionBankSnap.data().questions || [];
+        
+        if (qList.length === 0) {
+            throw new Error("Belum ada soal dalam paket ujian ini.");
+        }
+        
+        // Acak Soal (Opsional, di sini kita acak)
+        const shuffled = [...qList].sort(() => Math.random() - 0.5); 
         setQuestions(shuffled);
         
-        // Set Waktu (Misal 30 Menit)
-        setTimeLeft(30 * 60); 
+        // Set Waktu (Menit -> Detik)
+        setTimeLeft(examDuration * 60); 
         
         setScreen('countdown');
+
       } catch (error) {
         console.error(error);
-        alert("Gagal memuat soal.");
+        alert(`Gagal memuat ujian: ${error.message}`);
         navigate('/student');
       }
     };
@@ -103,16 +149,19 @@ const ExamSession = () => {
 
     // Hitung Skor Sederhana (Benar +1)
     let score = 0;
-    const scoreDetails = {};
     
-    questions.forEach(q => {
-        const userAnswer = answers[q.id];
-        const isCorrect = userAnswer === q.correctAnswer; // Asumsi key di DB 'correctAnswer'
-        if (isCorrect) score += 1;
-        scoreDetails[q.id] = { correct: isCorrect, ans: userAnswer || null };
-    });
+    // Pastikan questions ada isinya sebelum hitung
+    if (questions.length > 0) {
+        questions.forEach(q => {
+            const userAnswer = answers[q.id];
+            // Pastikan correctAnswer ada dan match
+            if (q.correctAnswer && userAnswer === q.correctAnswer) {
+                score += 1;
+            }
+        });
+    }
 
-    const finalScore = Math.round((score / questions.length) * 100);
+    const finalScore = questions.length > 0 ? Math.round((score / questions.length) * 100) : 0;
 
     try {
         await updateDoc(doc(db, 'tokens', token), {

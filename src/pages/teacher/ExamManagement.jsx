@@ -23,7 +23,8 @@ const ExamManagement = () => {
     name: '',
     classId: '',
     duration: 60, 
-    questionCount: 20
+    questionCount: 20,
+    examType: 'Latihan' // TAMBAHAN: Default tipe ujian
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -85,13 +86,20 @@ const ExamManagement = () => {
     
     setIsSubmitting(true);
     try {
+      // TAMBAHAN: Generate ID Sumber Soal (questionSourceId)
+      // Format: IDGuru_IDMapel_TipeUjian
+      // Ini agar ExamSession siswa tau harus ambil soal dari dokumen mana di 'teacher_bank_soal'
+      const questionSourceId = `${auth.currentUser.uid}_${activeSubjectId}_${formData.examType}`;
+
       // A. Buat Sesi Ujian
       const examRef = await addDoc(collection(db, 'exam_sessions'), {
         teacherId: auth.currentUser.uid,
-        subjectId: activeSubjectId, // PENTING: Mapel yg dipilih
+        subjectId: activeSubjectId, 
         name: formData.name,
         classId: formData.classId,
         duration: parseInt(formData.duration),
+        examType: formData.examType, // TAMBAHAN: Simpan tipe ujian
+        questionSourceId: questionSourceId, // TAMBAHAN: Simpan referensi ke bank soal
         createdAt: serverTimestamp(),
         status: 'active'
       });
@@ -104,7 +112,7 @@ const ExamManagement = () => {
         alert("Kelas ini kosong! Ujian dibuat tapi tidak ada token.");
         setIsSubmitting(false);
         setIsModalOpen(false);
-        return; // Tetap sukses create exam, cuma ga ada token
+        return; 
       }
 
       // C. Generate Tokens
@@ -120,7 +128,11 @@ const ExamManagement = () => {
           studentName: sData.displayName,
           studentId: studentDoc.id,
           classId: formData.classId,
-          examSubjectId: activeSubjectId, // Tracking mapel di token
+          examSubjectId: activeSubjectId, 
+          // TAMBAHAN: Simpan info penting di token juga untuk redundansi
+          teacherId: auth.currentUser.uid, 
+          examType: formData.examType, 
+          questionSourceId: questionSourceId,
           status: 'active',
           score: null,
           createdAt: new Date().toISOString()
@@ -178,13 +190,16 @@ const ExamManagement = () => {
                   <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold text-xs border border-indigo-100">
                     {getSubjectName(exam.subjectId)}
                   </span>
+                  <span className="bg-yellow-50 text-yellow-700 px-2 py-1 rounded font-bold text-xs border border-yellow-100">
+                    {exam.examType || 'Latihan'}
+                  </span>
                   <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><Users size={14}/> {getClassName(exam.classId)}</span>
                   <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><Clock size={14}/> {exam.duration} Menit</span>
                   <span className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded font-bold"><CheckCircle2 size={14}/> Aktif</span>
                 </div>
               </div>
               <button 
-                onClick={() => alert(`Token Ujian ini tersimpan di database. \n\nID: ${exam.id}\nMapel: ${getSubjectName(exam.subjectId)}`)}
+                onClick={() => alert(`Token Ujian ini tersimpan di database. \n\nID: ${exam.id}\nMapel: ${getSubjectName(exam.subjectId)}\nTipe: ${exam.examType || 'Latihan'}`)}
                 className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2"
               >
                 <Ticket size={16}/> Cek Token
@@ -210,7 +225,7 @@ const ExamManagement = () => {
             
             <form onSubmit={handleCreateExam} className="p-6 space-y-4">
               
-              {/* PILIH MAPEL (Fitur Baru) */}
+              {/* PILIH MAPEL */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Mata Pelajaran</label>
                 <select 
@@ -225,6 +240,7 @@ const ExamManagement = () => {
                 </select>
               </div>
 
+              {/* NAMA UJIAN */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Nama Ujian</label>
                 <input 
@@ -234,6 +250,7 @@ const ExamManagement = () => {
                 />
               </div>
 
+              {/* TARGET KELAS */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Target Kelas</label>
                 <select 
@@ -248,6 +265,24 @@ const ExamManagement = () => {
                 </select>
               </div>
 
+              {/* TAMBAHAN: TIPE UJIAN */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Tipe Ujian (Bank Soal)</label>
+                <select 
+                  required 
+                  value={formData.examType} onChange={e => setFormData({...formData, examType: e.target.value})}
+                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="Latihan">Latihan</option>
+                  <option value="Ulangan">Ulangan</option>
+                  <option value="UTS">UTS</option>
+                  <option value="UAS">UAS</option>
+                  <option value="Tryout">Tryout</option>
+                </select>
+                <p className="text-[10px] text-gray-500 mt-1">*Soal akan diambil dari Bank Soal sesuai tipe yang dipilih.</p>
+              </div>
+
+              {/* DURASI & RANDOM PLACEHOLDER */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Durasi (Menit)</label>
