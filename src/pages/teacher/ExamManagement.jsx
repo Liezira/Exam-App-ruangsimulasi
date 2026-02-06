@@ -4,43 +4,68 @@ import {
   collection, addDoc, getDocs, query, where, writeBatch, doc, serverTimestamp, orderBy, getDoc 
 } from 'firebase/firestore';
 import { 
-  Plus, Calendar, Clock, Users, Save, X, Loader2, Ticket, CheckCircle2, FileText 
+  Plus, Clock, Users, Save, X, Loader2, Ticket, CheckCircle2, FileText, AlertTriangle 
 } from 'lucide-react';
 
 const ExamManagement = () => {
   const [exams, setExams] = useState([]);
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [teacherProfile, setTeacherProfile] = useState(null);
+  
+  // Multi-Subject State
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
+  const [activeSubjectId, setActiveSubjectId] = useState('');
 
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     classId: '',
-    duration: 60, // menit
+    duration: 60, 
     questionCount: 20
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. Load Data Awal
+  // 1. Load Data (Guru, Mapel Guru, Kelas, History Ujian)
   useEffect(() => {
     const initData = async () => {
       const user = auth.currentUser;
       if (!user) return;
 
       try {
-        // Ambil Profil Guru (untuk subjectId)
-        const userSnap = await getDoc(doc(db, 'users', user.uid));
-        const tData = userSnap.data();
-        setTeacherProfile(tData);
+        // A. Ambil Data Guru & Mapelnya (Logic Smart Lookup)
+        let tData = null;
+        const docSnap = await getDoc(doc(db, 'users', user.uid));
+        if (docSnap.exists()) tData = docSnap.data();
+        else {
+          const qUser = query(collection(db, 'users'), where('email', '==', user.email));
+          const snap = await getDocs(qUser);
+          if (!snap.empty) tData = snap.docs[0].data();
+        }
 
-        // Ambil Daftar Kelas
+        if (tData) {
+          // Normalisasi Subject IDs
+          let sIds = [];
+          if (Array.isArray(tData.subjectIds)) sIds = tData.subjectIds;
+          else if (tData.subjectId) sIds = [tData.subjectId];
+
+          if (sIds.length > 0) {
+            // Ambil detail nama mapel
+            const subQuery = query(collection(db, 'subjects'), where('__name__', 'in', sIds));
+            const subSnap = await getDocs(subQuery);
+            const mySubjects = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            setTeacherSubjects(mySubjects);
+            if (mySubjects.length > 0) setActiveSubjectId(mySubjects[0].id);
+          }
+        }
+
+        // B. Ambil Daftar Kelas
         const classSnap = await getDocs(query(collection(db, 'classes'), orderBy('name')));
         setClasses(classSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-        // Ambil Riwayat Ujian yg dibuat guru ini
-        const examSnap = await getDocs(query(collection(db, 'exam_sessions'), where('teacherId', '==', user.uid)));
+        // C. Ambil Riwayat Ujian Guru Ini
+        const examSnap = await getDocs(query(collection(db, 'exam_sessions'), where('teacherId', '==', user.uid), orderBy('createdAt', 'desc')));
         setExams(examSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         
       } catch (error) {
@@ -52,17 +77,17 @@ const ExamManagement = () => {
     initData();
   }, []);
 
-  // 2. Handle Create Exam & Generate Tokens
+  // 2. Handle Create Exam
   const handleCreateExam = async (e) => {
     e.preventDefault();
-    if (!teacherProfile?.subjectId) return alert("Anda belum memiliki Mapel aktif.");
+    if (!activeSubjectId) return alert("Pilih mata pelajaran terlebih dahulu.");
     
     setIsSubmitting(true);
     try {
-      // A. Buat Dokumen Sesi Ujian
+      // A. Buat Sesi Ujian
       const examRef = await addDoc(collection(db, 'exam_sessions'), {
         teacherId: auth.currentUser.uid,
-        subjectId: teacherProfile.subjectId,
+        subjectId: activeSubjectId, // PENTING: Mapel yg dipilih
         name: formData.name,
         classId: formData.classId,
         duration: parseInt(formData.duration),
@@ -70,23 +95,21 @@ const ExamManagement = () => {
         status: 'active'
       });
 
-      // B. Ambil Siswa di Kelas Tersebut
+      // B. Ambil Siswa
       const studentsQuery = query(collection(db, 'users'), where('classId', '==', formData.classId), where('role', '==', 'student'));
       const studentsSnap = await getDocs(studentsQuery);
 
       if (studentsSnap.empty) {
-        alert("Kelas ini tidak memiliki siswa! Ujian dibuat tapi tidak ada token.");
+        alert("Kelas ini kosong! Ujian dibuat tapi tidak ada token.");
         setIsSubmitting(false);
         setIsModalOpen(false);
-        return;
+        return; // Tetap sukses create exam, cuma ga ada token
       }
 
-      // C. Batch Generate Tokens
+      // C. Generate Tokens
       const batch = writeBatch(db);
-      
       studentsSnap.forEach((studentDoc) => {
         const sData = studentDoc.data();
-        // Generate Token 6 Digit (Huruf + Angka)
         const tokenCode = Math.random().toString(36).substring(2, 8).toUpperCase();
         
         const tokenRef = doc(db, 'tokens', tokenCode);
@@ -96,6 +119,7 @@ const ExamManagement = () => {
           studentName: sData.displayName,
           studentId: studentDoc.id,
           classId: formData.classId,
+          examSubjectId: activeSubjectId, // Tracking mapel di token
           status: 'active',
           score: null,
           createdAt: new Date().toISOString()
@@ -104,8 +128,8 @@ const ExamManagement = () => {
 
       await batch.commit();
 
-      alert(`Sukses! ${studentsSnap.size} Token ujian berhasil digenerate.`);
-      window.location.reload(); // Reload simple untuk refresh data
+      alert(`Sukses! Ujian "${formData.name}" berhasil dibuat.`);
+      window.location.reload(); 
 
     } catch (error) {
       console.error(error);
@@ -115,6 +139,9 @@ const ExamManagement = () => {
     }
   };
 
+  const getSubjectName = (id) => teacherSubjects.find(s => s.id === id)?.name || 'Unknown';
+  const getClassName = (id) => classes.find(c => c.id === id)?.name || 'Unknown';
+
   if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin inline text-indigo-600"/> Memuat data...</div>;
 
   return (
@@ -122,14 +149,19 @@ const ExamManagement = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Manajemen Ujian</h2>
-          <p className="text-gray-500 text-sm">Buat jadwal dan generate token untuk kelas.</p>
+          <p className="text-gray-500 text-sm">Buat jadwal dan generate token.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg"
-        >
-          <Plus size={18} /> Buat Ujian Baru
-        </button>
+        
+        {/* Tombol Buat Ujian hanya aktif jika punya mapel */}
+        {teacherSubjects.length > 0 ? (
+           <button onClick={() => setIsModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg transition">
+             <Plus size={18} /> Buat Ujian Baru
+           </button>
+        ) : (
+           <div className="bg-red-50 text-red-600 px-3 py-1 rounded text-xs border border-red-200 flex items-center gap-1">
+             <AlertTriangle size={14}/> Anda belum memiliki Mapel
+           </div>
+        )}
       </div>
 
       <div className="grid gap-4">
@@ -140,22 +172,24 @@ const ExamManagement = () => {
                 <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
                   <FileText className="text-indigo-600" size={20}/> {exam.name}
                 </h3>
-                <div className="flex gap-4 mt-2 text-sm text-gray-600">
-                  <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><Users size={14}/> Kelas: {classes.find(c=>c.id===exam.classId)?.name || 'Unknown'}</span>
+                <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-600">
+                  <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold text-xs border border-indigo-100">
+                    {getSubjectName(exam.subjectId)}
+                  </span>
+                  <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><Users size={14}/> {getClassName(exam.classId)}</span>
                   <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><Clock size={14}/> {exam.duration} Menit</span>
                   <span className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded font-bold"><CheckCircle2 size={14}/> Aktif</span>
                 </div>
               </div>
               <button 
-                onClick={() => alert(`Fitur Cetak Kartu Ujian (PDF) akan hadir di update selanjutnya. \nID Ujian: ${exam.id}`)}
+                onClick={() => alert(`Token Ujian ini tersimpan di database. \n\nID: ${exam.id}\nMapel: ${getSubjectName(exam.subjectId)}`)}
                 className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2"
               >
-                <Ticket size={16}/> Lihat Token
+                <Ticket size={16}/> Cek Token
               </button>
             </div>
           </div>
         ))}
-        
         {exams.length === 0 && (
           <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 text-gray-400">
             Belum ada ujian yang dibuat.
@@ -173,10 +207,26 @@ const ExamManagement = () => {
             </div>
             
             <form onSubmit={handleCreateExam} className="p-6 space-y-4">
+              
+              {/* PILIH MAPEL (Fitur Baru) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Mata Pelajaran</label>
+                <select 
+                  required 
+                  value={activeSubjectId} 
+                  onChange={e => setActiveSubjectId(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-indigo-50 font-bold text-indigo-900"
+                >
+                  {teacherSubjects.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Nama Ujian</label>
                 <input 
-                  type="text" required placeholder="Contoh: Ulangan Harian Bab 1"
+                  type="text" required placeholder="Contoh: UH 1 Logaritma"
                   value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})}
                   className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
                 />
@@ -194,7 +244,6 @@ const ExamManagement = () => {
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
-                <p className="text-[10px] text-gray-500 mt-1">*Token akan otomatis dibuat untuk semua siswa di kelas ini.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -207,10 +256,10 @@ const ExamManagement = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Jumlah Soal</label>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Soal</label>
                   <input 
-                    type="number" disabled value={20} 
-                    className="w-full p-3 border border-gray-300 bg-gray-100 text-gray-500 rounded-lg outline-none cursor-not-allowed"
+                    type="text" disabled value="Auto (Random)" 
+                    className="w-full p-3 border border-gray-300 bg-gray-100 text-gray-500 rounded-lg outline-none cursor-not-allowed text-xs"
                   />
                 </div>
               </div>
@@ -221,7 +270,7 @@ const ExamManagement = () => {
                   disabled={isSubmitting}
                   className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg flex justify-center items-center gap-2"
                 >
-                  {isSubmitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} Generate Token & Simpan
+                  {isSubmitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} Generate Token
                 </button>
               </div>
             </form>
