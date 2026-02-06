@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from '../../firebase';
 import { 
-  collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp, getDoc 
-} from 'firebase/firestore';
+  collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp, getDoc, getDocs 
+} from 'firebase/firestore'; // Note: getDocs ditambahkan
 import { 
   Plus, Search, Pencil, Trash2, Save, X, ArrowLeft, Image as ImageIcon, CheckCircle2, AlertTriangle, Eye 
 } from 'lucide-react';
@@ -27,34 +27,57 @@ const QuestionBank = () => {
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 1. Load Data Guru & Soal
+  // 1. Load Data Guru & Soal (LOGIC SMART LOOKUP)
   useEffect(() => {
     const initData = async () => {
       const user = auth.currentUser;
       if (!user) return;
 
-      // Ambil profil guru untuk dapat subjectId
-      const userSnap = await getDoc(doc(db, 'users', user.uid));
-      if (userSnap.exists()) {
-        const tData = userSnap.data();
-        setTeacherData(tData);
+      try {
+        let tData = null;
 
-        if (tData.subjectId) {
-          // Ambil soal HANYA untuk subjectId guru tersebut
-          const q = query(collection(db, 'bank_soal'), where('subjectId', '==', tData.subjectId));
-          const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            // Sort client side karena Firestore perlu composite index untuk orderBy campuran
-            data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-            setQuestions(data);
-            setLoading(false);
-          });
-          return unsubscribe;
+        // A. Cek by UID (Standar)
+        const docRef = doc(db, 'users', user.uid);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          tData = docSnap.data();
+        } else {
+          // B. Fallback: Cek by Email (Khusus akun buatan Admin)
+          const qUser = query(collection(db, 'users'), where('email', '==', user.email));
+          const querySnapshot = await getDocs(qUser);
+          if (!querySnapshot.empty) {
+            tData = querySnapshot.docs[0].data();
+          }
+        }
+
+        if (tData) {
+          setTeacherData(tData);
+
+          if (tData.subjectId) {
+            // Ambil soal HANYA untuk subjectId guru tersebut
+            const q = query(collection(db, 'bank_soal'), where('subjectId', '==', tData.subjectId));
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+              const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+              // Sort client side
+              data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+              setQuestions(data);
+              setLoading(false);
+            });
+            return unsubscribe; // Cleanup listener
+          } else {
+             setLoading(false);
+          }
         } else {
             setLoading(false);
         }
+
+      } catch (err) {
+          console.error("Error init data:", err);
+          setLoading(false);
       }
     };
+
     initData();
   }, []);
 
@@ -147,8 +170,8 @@ const QuestionBank = () => {
           </button>
         </div>
 
-        {!teacherData?.subjectId && (
-          <div className="bg-red-50 text-red-600 p-4 rounded-lg flex items-center gap-2">
+        {!teacherData?.subjectId && !loading && (
+          <div className="bg-red-50 text-red-600 p-4 rounded-lg flex items-center gap-2 border border-red-200">
             <AlertTriangle /> Akun Anda belum terhubung dengan Mata Pelajaran. Hubungi Admin.
           </div>
         )}
@@ -194,8 +217,8 @@ const QuestionBank = () => {
               )}
             </div>
           ))}
-          {questions.length === 0 && !loading && (
-            <div className="text-center py-10 text-gray-400">Belum ada soal dibuat.</div>
+          {questions.length === 0 && !loading && teacherData?.subjectId && (
+            <div className="text-center py-10 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">Belum ada soal dibuat.</div>
           )}
         </div>
       </div>
