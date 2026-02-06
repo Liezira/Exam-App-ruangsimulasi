@@ -1,403 +1,527 @@
 import React, { useState, useEffect } from 'react';
+import { 
+  Plus, Search, Trash2, Edit, Save, X, UploadCloud, 
+  FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, 
+  ChevronDown, ChevronUp, Image as ImageIcon, BookOpen, Filter 
+} from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { 
-  collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp, getDoc, getDocs 
+  collection, addDoc, query, where, getDocs, deleteDoc, doc, updateDoc, serverTimestamp, orderBy 
 } from 'firebase/firestore';
-import { 
-  Plus, Pencil, Trash2, Save, X, ArrowLeft, Image as ImageIcon, AlertTriangle, ChevronDown, FileSpreadsheet 
-} from 'lucide-react';
+import * as XLSX from 'xlsx';
+
+// Library Matematika (LaTeX)
 import 'katex/dist/katex.min.css';
 import Latex from 'react-latex-next';
-import BulkImportQuestions from '../../components/teacher/BulkImportQuestions';
-import PageTransition from '../../components/PageTransition';
 
-const QuestionBank = () => {
-  const [viewMode, setViewMode] = useState('list');
+const TeacherQuestionBank = () => {
+  // --- STATE DATA ---
+  const [subjects, setSubjects] = useState([]);
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   
-  // Multi-Subject State
-  const [teacherSubjects, setTeacherSubjects] = useState([]); 
-  const [activeSubjectId, setActiveSubjectId] = useState(''); 
-
-  // Import State
-  const [showImport, setShowImport] = useState(false);
-
-  // Form State
-  const [formData, setFormData] = useState({
-    type: 'pilihan_ganda', question: '', image: '', options: ['', '', '', '', ''], correctAnswer: 'A'
-  });
+  // --- STATE FORM MANUAL ---
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    type: 'pilihan_ganda', // pilihan_ganda, isian
+    question: '',
+    options: ['', '', '', '', ''],
+    correctAnswer: 'A', // Default A untuk PG
+    image: ''
+  });
 
-  // 1. Load Profile & Subjects
+  // --- STATE IMPORT EXCEL ---
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [previewImport, setPreviewImport] = useState([]);
+  const [isImporting, setIsImporting] = useState(false);
+
+  // 1. Load Mapel Guru (Saat pertama buka)
   useEffect(() => {
-    const initData = async () => {
+    const fetchSubjects = async () => {
       const user = auth.currentUser;
       if (!user) return;
 
       try {
-        let tData = null;
-        const docSnap = await getDoc(doc(db, 'users', user.uid));
-        if (docSnap.exists()) tData = docSnap.data();
-        else {
-          const qUser = query(collection(db, 'users'), where('email', '==', user.email));
-          const querySnapshot = await getDocs(qUser);
-          if (!querySnapshot.empty) tData = querySnapshot.docs[0].data();
-        }
-
-        if (tData) {
-          let sIds = [];
-          if (Array.isArray(tData.subjectIds)) sIds = tData.subjectIds;
-          else if (tData.subjectId) sIds = [tData.subjectId];
-
-          if (sIds.length > 0) {
-            const subQuery = query(collection(db, 'subjects'), where('__name__', 'in', sIds));
-            const subSnap = await getDocs(subQuery);
-            const mySubjects = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Ambil data profil guru untuk melihat subjectIds
+        const userDoc = await getDocs(query(collection(db, 'users'), where('email', '==', user.email)));
+        if (!userDoc.empty) {
+          const userData = userDoc.docs[0].data();
+          const subjectIds = userData.subjectIds || [];
+          
+          if (subjectIds.length > 0) {
+            // Ambil detail nama mapel dari collection subjects
+            // Note: Firestore 'in' query max 10, jika lebih harus di-chunk. 
+            // Untuk simpel kita ambil semua subjects lalu filter di client (efisiensi v1)
+            const allSubjectsSnap = await getDocs(collection(db, 'subjects'));
+            const mySubjects = allSubjectsSnap.docs
+              .filter(doc => subjectIds.includes(doc.id))
+              .map(doc => ({ id: doc.id, ...doc.data() }));
             
-            setTeacherSubjects(mySubjects);
-            setActiveSubjectId(mySubjects[0].id); 
+            setSubjects(mySubjects);
+            if (mySubjects.length > 0) setSelectedSubject(mySubjects[0].id);
           }
         }
-      } catch (err) {
-        console.error("Error init:", err);
+      } catch (error) {
+        console.error("Gagal load mapel:", error);
+      }
+    };
+    fetchSubjects();
+  }, []);
+
+  // 2. Load Soal (Saat Subject Berubah)
+  useEffect(() => {
+    const fetchQuestions = async () => {
+      if (!selectedSubject) return;
+      setLoading(true);
+      try {
+        const q = query(
+          collection(db, 'questions'), 
+          where('subjectId', '==', selectedSubject),
+          where('teacherId', '==', auth.currentUser.uid),
+          orderBy('createdAt', 'desc')
+        );
+        const snapshot = await getDocs(q);
+        setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error("Gagal load soal:", error);
       } finally {
         setLoading(false);
       }
     };
-    initData();
-  }, []);
+    fetchQuestions();
+  }, [selectedSubject]);
 
-  // 2. Load Soal
-  useEffect(() => {
-    if (!activeSubjectId) {
-        setQuestions([]);
-        return;
+  // --- LOGIC MANUAL INPUT ---
+  const handleOpenModal = (question = null) => {
+    if (question) {
+      setEditingId(question.id);
+      setFormData({
+        type: question.type,
+        question: question.question,
+        options: question.options || ['', '', '', '', ''],
+        correctAnswer: question.correctAnswer,
+        image: question.image || ''
+      });
+    } else {
+      setEditingId(null);
+      setFormData({
+        type: 'pilihan_ganda',
+        question: '',
+        options: ['', '', '', '', ''],
+        correctAnswer: 'A',
+        image: ''
+      });
     }
-    const q = query(collection(db, 'bank_soal'), where('subjectId', '==', activeSubjectId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setQuestions(data);
-    });
-    return unsubscribe;
-  }, [activeSubjectId]);
+    setIsModalOpen(true);
+  };
 
-  // Handlers
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 1024 * 1024) return alert("Ukuran gambar maks 1MB");
+    
     const reader = new FileReader();
-    reader.onloadend = () => setFormData({ ...formData, image: reader.result });
+    reader.onloadend = () => {
+      setFormData({ ...formData, image: reader.result });
+    };
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!activeSubjectId) return alert("Error: Tidak ada mapel aktif.");
-    setIsSaving(true);
+  const handleSaveManual = async () => {
+    if (!formData.question) return alert("Pertanyaan wajib diisi!");
+    if (formData.type === 'pilihan_ganda' && formData.options.some(opt => !opt)) return alert("Semua opsi A-E wajib diisi!");
+
+    setLoading(true);
     try {
       const payload = {
         ...formData,
-        subjectId: activeSubjectId,
         teacherId: auth.currentUser.uid,
-        updatedAt: serverTimestamp()
+        subjectId: selectedSubject,
+        createdAt: serverTimestamp()
       };
-      if (editingId) await updateDoc(doc(db, 'bank_soal', editingId), payload);
-      else await addDoc(collection(db, 'bank_soal'), { ...payload, createdAt: serverTimestamp() });
+
+      if (editingId) {
+        await updateDoc(doc(db, 'questions', editingId), payload);
+        alert("Soal berhasil diupdate!");
+      } else {
+        await addDoc(collection(db, 'questions'), payload);
+        alert("Soal berhasil dibuat!");
+      }
       
-      setViewMode('list');
-      setFormData({ type: 'pilihan_ganda', question: '', image: '', options: ['', '', '', '', ''], correctAnswer: 'A' });
-      setEditingId(null);
-    } catch (error) { alert("Gagal menyimpan."); } finally { setIsSaving(false); }
+      setIsModalOpen(false);
+      // Refresh Manual (Simple way)
+      window.location.reload(); 
+    } catch (error) {
+      console.error(error);
+      alert("Gagal menyimpan soal.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDelete = async (id) => { if (confirm("Hapus soal?")) await deleteDoc(doc(db, 'bank_soal', id)); };
-  
-  const handleEdit = (item) => {
-     setEditingId(item.id);
-     setFormData({ type: item.type||'pilihan_ganda', question: item.question, image: item.image||'', options: item.options||['','','','',''], correctAnswer: item.correctAnswer||'A' });
-     setViewMode('edit');
+  const handleDelete = async (id) => {
+    if (!confirm("Yakin hapus soal ini?")) return;
+    try {
+      await deleteDoc(doc(db, 'questions', id));
+      setQuestions(questions.filter(q => q.id !== id));
+    } catch (error) {
+      alert("Gagal hapus.");
+    }
   };
 
-  // --- RENDER: LIST VIEW ---
-  if (viewMode === 'list') {
-    return (
-      <PageTransition>
-      <div className="space-y-6">
-        {/* === HEADER (HANYA MUNCUL SEKALI) === */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800">Bank Soal</h2>
-            <p className="text-gray-500 text-sm">Kelola soal per mata pelajaran.</p>
-          </div>
-          
-          <div className="flex flex-wrap gap-2">
-             {teacherSubjects.length > 0 && (
-                 <div className="relative">
-                    <select 
-                        value={activeSubjectId} 
-                        onChange={(e) => setActiveSubjectId(e.target.value)}
-                        className="appearance-none bg-white border border-indigo-200 text-indigo-700 py-2.5 pl-4 pr-10 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm min-w-[150px]"
-                    >
-                        {teacherSubjects.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-3 text-indigo-500 pointer-events-none" size={16} />
-                 </div>
-             )}
-             
-             <button 
-                disabled={!activeSubjectId}
-                onClick={() => setShowImport(!showImport)}
-                className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50 transition shadow-sm border ${showImport ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white text-green-600 border-green-200 hover:bg-green-50'}`}
-             >
-                <FileSpreadsheet size={18} /> Import Excel
-             </button>
+  // --- LOGIC IMPORT EXCEL (Adaptasi Kode Referensi) ---
+  const handleDownloadTemplate = () => {
+    const data = [
+      {
+        "Tipe (PG/ISIAN)": "PG",
+        "Pertanyaan": "Ibu kota Indonesia adalah...",
+        "Opsi A": "Jakarta", "Opsi B": "Bandung", "Opsi C": "Surabaya", "Opsi D": "Medan", "Opsi E": "Bali",
+        "Kunci Jawaban": "A"
+      },
+      {
+        "Tipe (PG/ISIAN)": "ISIAN",
+        "Pertanyaan": "Hasil dari 5 x 5 adalah...",
+        "Opsi A": "-", "Opsi B": "-", "Opsi C": "-", "Opsi D": "-", "Opsi E": "-",
+        "Kunci Jawaban": "25"
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Soal");
+    XLSX.writeFile(wb, "TEMPLATE_SOAL_GURU.xlsx");
+  };
 
-             <button 
-                disabled={!activeSubjectId}
-                onClick={() => setViewMode('create')}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50 transition shadow-lg"
-             >
-                <Plus size={18} /> Buat Manual
-             </button>
-          </div>
-        </div>
+  const handleFileImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-        {/* IMPORT COMPONENT */}
-        {showImport && activeSubjectId && (
-            <BulkImportQuestions 
-                subjectId={activeSubjectId} 
-                onClose={() => setShowImport(false)}
-                onSuccess={() => setShowImport(false)}
-            />
-        )}
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws);
 
-        {/* EMPTY STATE WARNING (Jika Akun Guru Error) */}
-        {teacherSubjects.length === 0 && !loading && (
-          <div className="bg-red-50 text-red-600 p-4 rounded-lg flex items-center gap-2 border border-red-200">
-            <AlertTriangle /> Akun Anda belum terhubung dengan Mata Pelajaran apapun.
-          </div>
-        )}
+      const parsed = data.map((row, idx) => {
+        const type = row["Tipe (PG/ISIAN)"]?.toString().toUpperCase().includes("ISIAN") ? 'isian' : 'pilihan_ganda';
+        return {
+            id: idx,
+            type,
+            question: row["Pertanyaan"] || "",
+            options: type === 'pilihan_ganda' ? [
+                row["Opsi A"] || "", row["Opsi B"] || "", row["Opsi C"] || "", row["Opsi D"] || "", row["Opsi E"] || ""
+            ] : [],
+            correctAnswer: row["Kunci Jawaban"]?.toString() || "",
+            image: "",
+            valid: !!row["Pertanyaan"] && !!row["Kunci Jawaban"]
+        };
+      });
+      
+      setPreviewImport(parsed);
+      setIsImportModalOpen(true);
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = null;
+  };
 
-        {/* === LIST QUESTIONS (LOOPING ADA DI SINI) === */}
-        <div className="grid gap-4">
-            {questions.map((q, idx) => (
-                <div key={q.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition">
-                    <div className="flex justify-between items-start mb-3">
-                        <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold">
-                           {activeSubjectId && teacherSubjects.find(s=>s.id===activeSubjectId)?.name} • No. {questions.length - idx} • {q.type === 'isian' ? 'ISIAN' : 'PG'}
-                        </span>
-                        <div className="flex gap-2">
-                           <button onClick={() => handleEdit(q)} className="text-blue-600 bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>
-                           <button onClick={() => handleDelete(q.id)} className="text-red-600 bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
-                        </div>
-                    </div>
-                    <div className="mb-4 text-gray-800 text-sm"><Latex>{q.question}</Latex></div>
-                    {q.image && <img src={q.image} alt="Soal" className="h-24 object-contain rounded border mb-3 bg-gray-50" />}
-                    
-                    {q.type === 'pilihan_ganda' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
-                            {q.options.map((opt, i) => (
-                                <div key={i} className={`flex gap-2 items-center p-2 rounded border ${['A','B','C','D','E'][i] === q.correctAnswer ? 'bg-green-50 border-green-200 text-green-700 font-bold' : 'bg-gray-50'}`}>
-                                    <span className="w-5 h-5 flex items-center justify-center bg-white border rounded text-[10px]">{['A','B','C','D','E'][i]}</span>
-                                    <span className="truncate"><Latex>{opt}</Latex></span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {q.type === 'isian' && (
-                        <div className="bg-green-50 text-green-800 p-2 rounded text-xs font-bold border border-green-200 inline-block">
-                           Kunci: {q.correctAnswer}
-                        </div>
-                    )}
-                </div>
-            ))}
-            
-             {/* EMPTY STATE (Hanya muncul jika Soal Kosong) */}
-             {questions.length === 0 && !loading && activeSubjectId && !showImport && (
-                <div className="text-center py-10 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
-                    Belum ada soal. Klik Import Excel atau Buat Manual.
-                </div>
-            )}
-        </div>
-      </div>
-      </PageTransition>
-    );
-  }
+  const executeBulkImport = async () => {
+    const validData = previewImport.filter(p => p.valid);
+    if (validData.length === 0) return alert("Tidak ada data valid.");
 
-  // --- RENDER VIEW: CREATE / EDIT ---
+    setIsImporting(true);
+    try {
+        const promises = validData.map(item => {
+            return addDoc(collection(db, 'questions'), {
+                teacherId: auth.currentUser.uid,
+                subjectId: selectedSubject,
+                type: item.type,
+                question: item.question,
+                options: item.options,
+                correctAnswer: item.correctAnswer,
+                image: "",
+                createdAt: serverTimestamp()
+            });
+        });
+
+        await Promise.all(promises);
+        alert(`Sukses import ${validData.length} soal!`);
+        setIsImportModalOpen(false);
+        setPreviewImport([]);
+        window.location.reload();
+    } catch (error) {
+        console.error(error);
+        alert("Gagal import data.");
+    } finally {
+        setIsImporting(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-        <div className="bg-white border-b sticky top-0 z-20 px-6 py-4 flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-3">
-                <button onClick={() => setViewMode('list')} className="p-2 hover:bg-gray-100 rounded-full transition"><ArrowLeft size={20}/></button>
-                <div>
-                    <h2 className="font-bold text-lg text-gray-800 leading-tight">
-                        {viewMode === 'create' ? `Buat Soal Baru` : 'Edit Soal'}
-                    </h2>
-                    <p className="text-xs text-gray-500">{teacherSubjects.find(s=>s.id===activeSubjectId)?.name}</p>
-                </div>
-            </div>
-            <div className="flex gap-2">
-                <button onClick={() => setViewMode('list')} className="px-4 py-2 text-gray-600 font-bold text-sm hover:bg-gray-100 rounded-lg">Batal</button>
-                <button onClick={handleSubmit} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md flex items-center gap-2">
-                   {isSaving ? 'Menyimpan...' : <><Save size={16}/> Simpan Soal</>}
-                </button>
-            </div>
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* HEADER & FILTER */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Bank Soal</h1>
+          <p className="text-gray-500 text-sm">Kelola soal untuk ujian siswa.</p>
         </div>
         
-        <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="space-y-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><Pencil size={18}/> Editor Soal</h3>
-                    
-                    <div className="flex gap-4 mb-6">
-                        <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition ${formData.type === 'pilihan_ganda' ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold' : 'bg-white border-gray-200'}`}>
-                            <input type="radio" name="type" value="pilihan_ganda" checked={formData.type === 'pilihan_ganda'} onChange={() => setFormData({...formData, type: 'pilihan_ganda'})} className="hidden"/>
-                            <span>Pilihan Ganda</span>
+        <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="relative">
+                <BookOpen className="absolute left-3 top-3 text-gray-400" size={16}/>
+                <select 
+                    value={selectedSubject} 
+                    onChange={e => setSelectedSubject(e.target.value)}
+                    className="pl-10 pr-4 py-2 border rounded-lg bg-gray-50 font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                    {subjects.length === 0 && <option value="">Loading Mapel...</option>}
+                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+            </div>
+        </div>
+      </div>
+
+      {/* ACTION BAR */}
+      <div className="flex flex-wrap gap-3">
+        <button 
+            onClick={() => handleOpenModal()} 
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition shadow-sm"
+        >
+            <Plus size={18}/> Tambah Manual
+        </button>
+        
+        <div className="relative">
+            <input type="file" accept=".xlsx" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer"/>
+            <button className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-green-700 transition shadow-sm">
+                <FileSpreadsheet size={18}/> Import Excel
+            </button>
+        </div>
+
+        <button 
+            onClick={handleDownloadTemplate} 
+            className="bg-white border border-gray-300 text-gray-600 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-50 transition"
+        >
+            <UploadCloud size={18}/> Download Template
+        </button>
+      </div>
+
+      {/* QUESTION LIST */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        {loading ? (
+            <div className="p-10 text-center flex flex-col items-center text-gray-400">
+                <Loader2 className="animate-spin mb-2" size={30}/>
+                <p>Memuat Soal...</p>
+            </div>
+        ) : questions.length === 0 ? (
+            <div className="p-10 text-center text-gray-400 flex flex-col items-center">
+                <Search size={40} className="mb-2 opacity-20"/>
+                <p>Belum ada soal untuk mapel ini.</p>
+            </div>
+        ) : (
+            <div className="divide-y divide-gray-100">
+                {questions.map((q, idx) => (
+                    <div key={q.id} className="p-6 hover:bg-gray-50 transition group">
+                        <div className="flex justify-between items-start mb-3">
+                            <div className="flex gap-2 items-center">
+                                <span className="bg-indigo-100 text-indigo-700 font-bold px-2 py-1 rounded text-xs">#{idx + 1}</span>
+                                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${q.type === 'isian' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                                    {q.type.replace('_', ' ')}
+                                </span>
+                            </div>
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                                <button onClick={() => handleOpenModal(q)} className="p-2 text-blue-600 hover:bg-blue-50 rounded"><Edit size={18}/></button>
+                                <button onClick={() => handleDelete(q.id)} className="p-2 text-red-600 hover:bg-red-50 rounded"><Trash2 size={18}/></button>
+                            </div>
+                        </div>
+
+                        {/* Question Content */}
+                        <div className="mb-4 text-gray-800">
+                            <Latex>{q.question}</Latex>
+                        </div>
+                        
+                        {q.image && (
+                            <img src={q.image} alt="Soal" className="max-h-40 rounded border mb-4"/>
+                        )}
+
+                        {/* Options / Key */}
+                        {q.type === 'pilihan_ganda' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                {q.options.map((opt, i) => {
+                                    const label = ['A','B','C','D','E'][i];
+                                    const isCorrect = q.correctAnswer === label;
+                                    return (
+                                        <div key={i} className={`p-2 rounded border flex gap-2 ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-white border-gray-100'}`}>
+                                            <span className={`font-bold w-6 text-center ${isCorrect ? 'text-green-600' : 'text-gray-400'}`}>{label}</span>
+                                            <span className={isCorrect ? 'font-bold text-green-700' : 'text-gray-600'}>{opt}</span>
+                                            {isCorrect && <CheckCircle2 size={16} className="text-green-500 ml-auto"/>}
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        ) : (
+                            <div className="bg-orange-50 p-3 rounded border border-orange-100 text-sm text-orange-800 font-bold">
+                                Kunci Jawaban: {q.correctAnswer}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        )}
+      </div>
+
+      {/* --- MODAL MANUAL INPUT --- */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+                    <h2 className="text-xl font-bold">{editingId ? 'Edit Soal' : 'Buat Soal Baru'}</h2>
+                    <button onClick={() => setIsModalOpen(false)}><X size={24} className="text-gray-400 hover:text-red-500"/></button>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                    {/* Tipe Soal */}
+                    <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" checked={formData.type === 'pilihan_ganda'} onChange={() => setFormData({...formData, type: 'pilihan_ganda'})} />
+                            <span className="font-bold text-sm">Pilihan Ganda</span>
                         </label>
-                        <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition ${formData.type === 'isian' ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold' : 'bg-white border-gray-200'}`}>
-                            <input type="radio" name="type" value="isian" checked={formData.type === 'isian'} onChange={() => setFormData({...formData, type: 'isian'})} className="hidden"/>
-                            <span>Isian Singkat</span>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" checked={formData.type === 'isian'} onChange={() => setFormData({...formData, type: 'isian'})} />
+                            <span className="font-bold text-sm">Isian Singkat</span>
                         </label>
                     </div>
 
-                    <div className="mb-6">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Pertanyaan (Support LaTeX)</label>
-                        <textarea required rows={5} value={formData.question} onChange={(e) => setFormData({...formData, question: e.target.value})} className="w-full p-4 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-sans" placeholder="Tulis soal di sini... Gunakan $...$ untuk rumus matematika."/>
-                    </div>
-
-                    <div className="mb-6">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Gambar Pendukung (Opsional)</label>
-                        <div className="flex items-center gap-4">
-                            <label className="cursor-pointer bg-gray-50 border border-gray-300 hover:bg-gray-100 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition">
-                                <ImageIcon size={18} /> Upload Gambar
-                                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                            </label>
-                            {formData.image && (
-                                <button type="button" onClick={() => setFormData({...formData, image: ''})} className="text-red-500 text-xs font-bold hover:underline">Hapus Gambar</button>
-                            )}
+                    {/* Editor Soal */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">Pertanyaan (Support LaTeX $...$)</label>
+                        <textarea 
+                            rows={3}
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                            value={formData.question}
+                            onChange={e => setFormData({...formData, question: e.target.value})}
+                            placeholder="Contoh: Berapakah hasil dari $2 + 2$ ?"
+                        />
+                        <div className="mt-2 text-sm text-gray-500 bg-gray-50 p-2 rounded">
+                            Preview: <Latex>{formData.question || '...'}</Latex>
                         </div>
                     </div>
-                </div>
 
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 className="font-bold text-gray-700 mb-4">Pengaturan Jawaban</h3>
-                    
+                    {/* Gambar */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">Gambar (Opsional)</label>
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        {formData.image && <img src={formData.image} className="mt-2 max-h-40 rounded border"/>}
+                    </div>
+
+                    {/* Opsi / Jawaban */}
                     {formData.type === 'pilihan_ganda' ? (
-                        <div className="space-y-4">
+                        <div className="space-y-3 bg-gray-50 p-4 rounded-xl">
                             {formData.options.map((opt, i) => (
-                                <div key={i} className="flex gap-3 items-center">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setFormData({...formData, correctAnswer: ['A','B','C','D','E'][i]})}
-                                        className={`w-10 h-10 flex-shrink-0 rounded-lg font-bold border-2 transition flex items-center justify-center ${['A','B','C','D','E'][i] === formData.correctAnswer ? 'bg-green-500 text-white border-green-500' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'}`}
-                                        title="Klik untuk set sebagai Kunci Jawaban"
-                                    >
-                                        {['A','B','C','D','E'][i]}
-                                    </button>
+                                <div key={i} className="flex gap-2 items-center">
+                                    <span className="font-bold text-gray-500 w-6">{['A','B','C','D','E'][i]}</span>
                                     <input 
-                                        value={opt} 
-                                        onChange={(e)=>{const n=[...formData.options];n[i]=e.target.value;setFormData({...formData, options:n})}} 
-                                        className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none text-sm" 
-                                        placeholder={`Isi Opsi ${['A','B','C','D','E'][i]}`}
+                                        type="text" 
+                                        className="flex-1 p-2 border rounded focus:ring-2 focus:ring-indigo-200 outline-none"
+                                        value={opt}
+                                        onChange={e => {
+                                            const newOpts = [...formData.options];
+                                            newOpts[i] = e.target.value;
+                                            setFormData({...formData, options: newOpts});
+                                        }}
+                                        placeholder={`Pilihan ${['A','B','C','D','E'][i]}`}
+                                    />
+                                    <input 
+                                        type="radio" 
+                                        name="correct"
+                                        checked={formData.correctAnswer === ['A','B','C','D','E'][i]}
+                                        onChange={() => setFormData({...formData, correctAnswer: ['A','B','C','D','E'][i]})}
+                                        className="w-5 h-5 accent-green-600 cursor-pointer"
                                     />
                                 </div>
                             ))}
-                            <p className="text-xs text-gray-400 mt-2">*Klik huruf A/B/C/D/E untuk menentukan kunci jawaban benar.</p>
+                            <p className="text-xs text-right text-gray-500">*Klik radio button untuk set kunci jawaban</p>
                         </div>
                     ) : (
                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-2">Kunci Jawaban Benar</label>
                             <input 
-                                value={formData.correctAnswer} 
-                                onChange={e=>setFormData({...formData, correctAnswer:e.target.value})} 
-                                className="w-full p-3 border-2 border-green-200 rounded-lg focus:border-green-500 outline-none font-bold text-gray-800" 
-                                placeholder="Contoh: Proklamasi"
+                                type="text" 
+                                className="w-full p-3 border-2 border-green-500 rounded-lg font-bold"
+                                value={formData.correctAnswer}
+                                onChange={e => setFormData({...formData, correctAnswer: e.target.value})}
+                                placeholder="Jawaban..."
                             />
-                            <p className="text-xs text-gray-400 mt-2">*Siswa harus menjawab persis sama (Case Insensitive).</p>
                         </div>
                     )}
                 </div>
-            </div>
 
-            <div className="lg:sticky lg:top-24 h-fit">
-                <div className="bg-gray-800 rounded-2xl p-4 shadow-2xl border-4 border-gray-700">
-                    <div className="flex justify-between items-center mb-4 px-2">
-                        <div className="flex items-center gap-2 text-gray-400">
-                            <Smartphone size={16}/> <span className="text-xs font-bold uppercase tracking-wider">Preview Siswa</span>
-                        </div>
-                        <div className="flex gap-1">
-                            <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-                            <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        </div>
-                    </div>
-
-                    <div className="bg-gray-100 rounded-xl overflow-hidden min-h-[500px] flex flex-col relative">
-                        <div className="bg-white p-3 border-b flex justify-between items-center shadow-sm z-10">
-                             <div className="w-20 h-4 bg-gray-200 rounded animate-pulse"></div>
-                             <div className="px-2 py-1 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded">Sisa: 59:00</div>
-                        </div>
-
-                        <div className="p-4 overflow-y-auto flex-1">
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
-                                <div className="mb-3 flex justify-between">
-                                    <span className="text-xs font-bold text-gray-400 uppercase">Soal No. 1</span>
-                                    <span className="text-xs font-bold bg-gray-100 px-2 py-1 rounded text-gray-500">10 Poin</span>
-                                </div>
-
-                                <div className="text-gray-800 text-base leading-relaxed font-medium mb-4">
-                                   {formData.question ? <Latex>{formData.question}</Latex> : <span className="text-gray-300 italic">Pertanyaan akan muncul di sini...</span>}
-                                </div>
-
-                                {formData.image && (
-                                    <div className="mb-4 rounded-lg overflow-hidden border border-gray-100">
-                                        <img src={formData.image} className="w-full object-contain max-h-48 bg-gray-50"/>
-                                    </div>
-                                )}
-
-                                {formData.type === 'pilihan_ganda' ? (
-                                    <div className="space-y-3">
-                                        {formData.options.map((opt, i) => (
-                                            <div key={i} className={`p-3 rounded-lg border flex items-center gap-3 ${['A','B','C','D','E'][i] === formData.correctAnswer ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${['A','B','C','D','E'][i] === formData.correctAnswer ? 'border-green-500' : 'border-gray-300'}`}>
-                                                    {['A','B','C','D','E'][i] === formData.correctAnswer && <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>}
-                                                </div>
-                                                <div className="text-sm text-gray-700 w-full">
-                                                    {opt ? <Latex>{opt}</Latex> : <span className="text-gray-300 italic">Opsi {['A','B','C','D','E'][i]}...</span>}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <textarea 
-                                            disabled 
-                                            className="w-full p-3 bg-gray-50 border rounded-lg text-sm text-gray-500 cursor-not-allowed resize-none" 
-                                            rows={3} 
-                                            placeholder="Siswa akan mengetik jawaban di sini..."
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-3 border-t flex justify-between items-center">
-                            <div className="w-8 h-8 rounded bg-gray-200"></div>
-                            <div className="w-24 h-8 rounded bg-indigo-600"></div>
-                        </div>
-                    </div>
+                <div className="p-6 border-t flex justify-end gap-3 sticky bottom-0 bg-white">
+                    <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 border rounded-lg font-bold text-gray-500">Batal</button>
+                    <button onClick={handleSaveManual} disabled={loading} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 flex items-center gap-2">
+                        {loading ? <Loader2 className="animate-spin"/> : <Save size={18}/>} Simpan Soal
+                    </button>
                 </div>
-                <p className="text-center text-gray-400 text-xs mt-3">Visualisasi ini mensimulasikan tampilan di perangkat siswa.</p>
             </div>
         </div>
+      )}
+
+      {/* --- MODAL IMPORT PREVIEW --- */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+                <div className="p-6 border-b flex justify-between items-center bg-green-600 text-white rounded-t-2xl">
+                    <h2 className="text-xl font-bold flex items-center gap-2"><FileSpreadsheet/> Preview Import</h2>
+                    <button onClick={() => setIsImportModalOpen(false)}><X/></button>
+                </div>
+                
+                <div className="p-4 bg-gray-50 border-b flex justify-between text-sm">
+                    <span>Total Baris: <b>{previewImport.length}</b></span>
+                    <span>Valid: <b className="text-green-600">{previewImport.filter(p=>p.valid).length}</b></span>
+                </div>
+
+                <div className="flex-1 overflow-auto p-4">
+                    <table className="w-full text-xs text-left border-collapse">
+                        <thead className="bg-gray-100 sticky top-0">
+                            <tr>
+                                <th className="p-2 border">#</th>
+                                <th className="p-2 border">Tipe</th>
+                                <th className="p-2 border">Pertanyaan</th>
+                                <th className="p-2 border">Opsi</th>
+                                <th className="p-2 border">Kunci</th>
+                                <th className="p-2 border text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {previewImport.map((row, i) => (
+                                <tr key={i} className={row.valid ? 'bg-white' : 'bg-red-50'}>
+                                    <td className="p-2 border text-center">{i+1}</td>
+                                    <td className="p-2 border uppercase">{row.type}</td>
+                                    <td className="p-2 border truncate max-w-xs">{row.question}</td>
+                                    <td className="p-2 border text-gray-500 truncate max-w-xs">{row.options.join(', ')}</td>
+                                    <td className="p-2 border font-bold text-center">{row.correctAnswer}</td>
+                                    <td className="p-2 border text-center">
+                                        {row.valid ? <CheckCircle2 size={16} className="text-green-500 mx-auto"/> : <AlertCircle size={16} className="text-red-500 mx-auto"/>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="p-6 border-t flex justify-end gap-3">
+                    <button onClick={() => setIsImportModalOpen(false)} className="px-6 py-2 border rounded-lg">Batal</button>
+                    <button onClick={executeBulkImport} disabled={isImporting} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 flex items-center gap-2">
+                        {isImporting ? <Loader2 className="animate-spin"/> : <UploadCloud size={18}/>} Import Sekarang
+                    </button>
+                </div>
+             </div>
+        </div>
+      )}
+
     </div>
   );
 };
 
-export default QuestionBank;
+export default TeacherQuestionBank;
