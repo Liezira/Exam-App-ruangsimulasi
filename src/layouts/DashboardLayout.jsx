@@ -58,7 +58,7 @@ const DashboardLayout = ({ role }) => {
         className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 shadow-sm transform transition-transform duration-300 ease-in-out 
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}
       >
-        <div className="h-16 flex items-center justify-center border-b border-gray-100">
+        <div className="w-64 bg-white/90 backdrop-blur-xl border-r border-gray-100 shadow-2xl shadow-indigo-100/20 flex flex-col z-50">
             {/* Logo Area */}
             <div className="flex items-center gap-2 font-black text-xl text-indigo-600 tracking-tight">
                 <School size={28} />

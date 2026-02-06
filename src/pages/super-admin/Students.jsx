@@ -6,6 +6,7 @@ import {
 import { 
   Plus, Search, Pencil, Trash2, Filter, X, Save, Loader2, User, Mail 
 } from 'lucide-react';
+import BulkImportStudents from '../../components/admin/BulkImportStudents';
 
 const Students = () => {
   const [students, setStudents] = useState([]);
@@ -151,6 +152,14 @@ const Students = () => {
           </select>
         </div>
       </div>
+
+      {/* Area Import (Hanya muncul jika Kelas dipilih di filter) */}
+        {filterClass !== 'all' && (
+          <BulkImportStudents 
+              classId={filterClass} 
+              onSuccess={() => alert("Refresh data untuk melihat hasil.")} 
+          />
+        )}
 
       {/* Table Data */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

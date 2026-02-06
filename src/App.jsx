@@ -25,6 +25,19 @@ import TeacherGrades from './pages/teacher/Grades';
 import StudentDashboard from './pages/student/StudentDashboard';
 import ExamSession from './pages/student/ExamSession';
 
+import { motion } from 'framer-motion';
+
+const PageTransition = ({ children }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 15 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -15 }}
+    transition={{ duration: 0.4, ease: "easeOut" }}
+  >
+    {children}
+  </motion.div>
+);
+
 // --- PLACEHOLDERS ---
 const SuperAdminDashboard = () => (
   <div className="p-6">
