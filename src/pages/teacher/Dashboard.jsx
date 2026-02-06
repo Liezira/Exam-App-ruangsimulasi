@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { auth, db } from '../../firebase';
-import { doc, getDoc, collection, query, where, getCountFromServer } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, getCountFromServer } from 'firebase/firestore'; // Update Import
 import { BookOpen, FileQuestion, GraduationCap, Loader2, AlertTriangle } from 'lucide-react';
 
 const TeacherDashboard = () => {
@@ -15,12 +15,24 @@ const TeacherDashboard = () => {
       if (!user) return;
 
       try {
-        // 1. Ambil Data Profil Guru
+        let data = null;
+
+        // 1. Coba ambil Data Profil Guru (Smart Lookup: UID dulu, baru Email)
         const docRef = doc(db, 'users', user.uid);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-          const data = docSnap.data();
+          data = docSnap.data();
+        } else {
+          // Fallback ke Email
+          const q = query(collection(db, 'users'), where('email', '==', user.email));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            data = querySnapshot.docs[0].data();
+          }
+        }
+
+        if (data) {
           setProfile(data);
 
           // 2. Ambil Nama Mapel
@@ -52,7 +64,7 @@ const TeacherDashboard = () => {
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
         <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">Halo, {profile?.displayName} 👋</h1>
+          <h1 className="text-3xl font-bold mb-2">Halo, {profile?.displayName || 'Guru'} 👋</h1>
           <p className="text-indigo-100 text-lg">
             Selamat datang di Panel Guru. Anda terdaftar sebagai pengajar mapel:
           </p>
@@ -60,14 +72,13 @@ const TeacherDashboard = () => {
             {profile?.subjectId ? <span className="flex items-center gap-2"><BookOpen size={20}/> {subjectName}</span> : <span className="flex items-center gap-2 text-yellow-300"><AlertTriangle/> Belum ada Mapel</span>}
           </div>
         </div>
-        {/* Dekorasi */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
       </div>
 
       {!profile?.subjectId && (
         <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 text-yellow-700">
           <p className="font-bold">Peringatan Akun</p>
-          <p className="text-sm">Akun Anda belum dikaitkan dengan Mata Pelajaran apapun oleh Admin. Anda tidak dapat membuat soal sampai Admin mengaturnya.</p>
+          <p className="text-sm">Akun Anda belum dikaitkan dengan Mata Pelajaran apapun oleh Admin. Hubungi Admin untuk setup data.</p>
         </div>
       )}
 
@@ -89,7 +100,7 @@ const TeacherDashboard = () => {
           </div>
           <div>
             <p className="text-gray-500 text-sm font-bold uppercase">Ujian Aktif</p>
-            <p className="text-3xl font-bold text-gray-800">0</p>
+            <p className="text-3xl font-bold text-gray-800">-</p>
           </div>
         </div>
       </div>
