@@ -66,7 +66,7 @@ const TeacherDashboard = () => {
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
         <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">Halo, {profile?.displayName || 'Guru'} 👋</h1>
+          <h1 className="text-3xl font-bold mb-2">Halo, {profile?.displayName || 'Guru'}</h1>
           <p className="text-indigo-100 text-lg">
             Selamat datang di Panel Guru. Anda terdaftar sebagai pengajar mapel:
           </p>
