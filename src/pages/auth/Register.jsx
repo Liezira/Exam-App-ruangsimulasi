@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, addDoc, collection, query, orderBy, getDocs, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { UserPlus, Mail, Lock, User, Loader2, Phone, Hash, BookOpen, Plus, X, ArrowLeft, Save } from 'lucide-react';
+import { UserPlus, Mail, Lock, User, Loader2, Phone, Hash, BookOpen, Plus, X, ArrowLeft, Save, LayoutGrid } from 'lucide-react';
 
 const Register = () => {
   // State Form Utama
@@ -11,51 +11,57 @@ const Register = () => {
     displayName: '', email: '', password: '', nip: '', phone: '', schoolName: '' 
   });
 
-  // State Manajemen Mapel (PENTING)
-  // Kita simpan objek { id, name, isNew } agar bisa membedakan mapel lama vs baru
+  // --- STATE MAPEL ---
   const [mySubjects, setMySubjects] = useState([]); 
-  
-  // State UI
-  const [subjectsOptions, setSubjectsOptions] = useState([]); // Daftar mapel dari DB
-  const [selectedSubjectId, setSelectedSubjectId] = useState(''); // Pilihan dropdown
-  const [newSubjectName, setNewSubjectName] = useState(''); // Input manual mapel baru
-  const [isManualMode, setIsManualMode] = useState(false); // Mode input manual?
+  const [subjectsOptions, setSubjectsOptions] = useState([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
+  const [newSubjectName, setNewSubjectName] = useState('');
+  const [isManualSubject, setIsManualSubject] = useState(false);
+
+  // --- STATE KELAS (BARU) ---
+  const [myClasses, setMyClasses] = useState([]);
+  const [classesOptions, setClassesOptions] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [newClassName, setNewClassName] = useState('');
+  const [isManualClass, setIsManualClass] = useState(false);
   
   const [loading, setLoading] = useState(false);
-  const [loadingSubjects, setLoadingSubjects] = useState(true);
+  const [loadingData, setLoadingData] = useState(true);
   
   const navigate = useNavigate();
 
-  // 1. Load Daftar Mapel dari DB
+  // 1. Load Data Mapel & Kelas dari DB
   useEffect(() => {
-    const fetchSubjects = async () => {
+    const fetchData = async () => {
       try {
-        const q = query(collection(db, 'subjects'), orderBy('name', 'asc'));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setSubjectsOptions(data);
+        // Fetch Subjects
+        const qSub = query(collection(db, 'subjects'), orderBy('name', 'asc'));
+        const snapSub = await getDocs(qSub);
+        setSubjectsOptions(snapSub.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+        // Fetch Classes
+        const qClass = query(collection(db, 'classes'), orderBy('name', 'asc'));
+        const snapClass = await getDocs(qClass);
+        setClassesOptions(snapClass.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
       } catch (error) {
-        console.error("Gagal memuat mapel:", error);
+        console.error("Gagal memuat data:", error);
       } finally {
-        setLoadingSubjects(false);
+        setLoadingData(false);
       }
     };
-    fetchSubjects();
+    fetchData();
   }, []);
 
-  // Helper: Tambah Mapel ke List Saya
+  // --- LOGIC MAPEL ---
   const handleAddSubject = () => {
-    if (isManualMode) {
-      // MODE BUAT BARU
+    if (isManualSubject) {
       if (!newSubjectName.trim()) return;
-      // Cek duplikat di list sendiri
-      if (mySubjects.some(s => s.name.toLowerCase() === newSubjectName.toLowerCase())) return alert("Mapel ini sudah Anda pilih.");
-      
+      if (mySubjects.some(s => s.name.toLowerCase() === newSubjectName.toLowerCase())) return alert("Mapel ini sudah dipilih.");
       setMySubjects([...mySubjects, { id: null, name: newSubjectName, isNew: true }]);
       setNewSubjectName('');
-      setIsManualMode(false); // Kembali ke dropdown
+      setIsManualSubject(false);
     } else {
-      // MODE PILIH YG ADA
       if (!selectedSubjectId) return;
       const sub = subjectsOptions.find(s => s.id === selectedSubjectId);
       if (sub && !mySubjects.some(s => s.id === sub.id)) {
@@ -65,44 +71,64 @@ const Register = () => {
     }
   };
 
-  // Helper: Hapus Mapel dari List
-  const handleRemoveSubject = (indexToRemove) => {
-    setMySubjects(mySubjects.filter((_, idx) => idx !== indexToRemove));
+  const handleRemoveSubject = (idx) => setMySubjects(mySubjects.filter((_, i) => i !== idx));
+
+  // --- LOGIC KELAS (BARU) ---
+  const handleAddClass = () => {
+    if (isManualClass) {
+      if (!newClassName.trim()) return;
+      if (myClasses.some(c => c.name.toLowerCase() === newClassName.toLowerCase())) return alert("Kelas ini sudah dipilih.");
+      setMyClasses([...myClasses, { id: null, name: newClassName, isNew: true }]);
+      setNewClassName('');
+      setIsManualClass(false);
+    } else {
+      if (!selectedClassId) return;
+      const cls = classesOptions.find(c => c.id === selectedClassId);
+      if (cls && !myClasses.some(c => c.id === cls.id)) {
+        setMyClasses([...myClasses, { id: cls.id, name: cls.name, isNew: false }]);
+      }
+      setSelectedClassId('');
+    }
   };
 
-  // --- LOGIC REGISTRASI UTAMA ---
+  const handleRemoveClass = (idx) => setMyClasses(myClasses.filter((_, i) => i !== idx));
+
+  // --- REGISTER SUBMIT ---
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (mySubjects.length === 0) return alert("Mohon pilih atau buat minimal satu mata pelajaran!");
+    if (mySubjects.length === 0) return alert("Pilih minimal satu Mapel!");
+    if (myClasses.length === 0) return alert("Pilih minimal satu Kelas!");
 
     setLoading(true);
     try {
-      // 1. Buat User di Auth
+      // 1. Create Auth
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const user = userCredential.user;
-
-      // 2. Update Nama di Auth Profile
       await updateProfile(user, { displayName: formData.displayName });
 
-      // 3. PROSES MAPEL (Logic Cerdas)
-      // Kita harus memisahkan mana ID yang sudah ada, dan mana Mapel Baru yang harus dibuat dulu.
+      // 2. Process Subjects (Create New if needed)
       let finalSubjectIds = [];
-
       for (const item of mySubjects) {
         if (item.isNew) {
-          // Jika Mapel Baru: Buat dulu di collection 'subjects', lalu ambil ID-nya
-          const newSubRef = await addDoc(collection(db, 'subjects'), {
-            name: item.name,
-            createdAt: serverTimestamp() // Opsional: track kapan dibuat
-          });
-          finalSubjectIds.push(newSubRef.id);
+          const newRef = await addDoc(collection(db, 'subjects'), { name: item.name, createdAt: serverTimestamp() });
+          finalSubjectIds.push(newRef.id);
         } else {
-          // Jika Mapel Lama: Langsung pakai ID-nya
           finalSubjectIds.push(item.id);
         }
       }
 
-      // 4. Simpan Profil Guru Lengkap ke Firestore
+      // 3. Process Classes (Create New if needed)
+      let finalClassIds = [];
+      for (const item of myClasses) {
+        if (item.isNew) {
+          const newRef = await addDoc(collection(db, 'classes'), { name: item.name, createdAt: serverTimestamp() });
+          finalClassIds.push(newRef.id);
+        } else {
+          finalClassIds.push(item.id);
+        }
+      }
+
+      // 4. Save User Profile
       await setDoc(doc(db, 'users', user.uid), {
         role: 'teacher',
         displayName: formData.displayName,
@@ -110,22 +136,19 @@ const Register = () => {
         nip: formData.nip,
         phone: formData.phone,
         schoolName: formData.schoolName,
-        subjectIds: finalSubjectIds, // Array ID Mapel (Campuran lama & baru)
+        subjectIds: finalSubjectIds,
+        classIds: finalClassIds, // Simpan array kelas
         photoURL: '',
         credits: 0,
         createdAt: serverTimestamp()
       });
 
-      alert("Registrasi Berhasil! Mapel baru Anda juga telah disimpan.");
+      alert("Registrasi Sukses! Mapel & Kelas telah tersimpan.");
       navigate('/login');
 
     } catch (error) {
       console.error(error);
-      if (error.code === 'auth/email-already-in-use') {
-        alert("Email sudah terdaftar!");
-      } else {
-        alert("Gagal daftar: " + error.message);
-      }
+      alert("Gagal daftar: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -136,140 +159,103 @@ const Register = () => {
       <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 animate-in fade-in zoom-in duration-300">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-indigo-900">Registrasi Guru</h1>
-          <p className="text-gray-500 text-sm">Lengkapi data diri & mapel Anda.</p>
+          <p className="text-gray-500 text-sm">Lengkapi profil pengajar Anda.</p>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-4">
           
-          {/* Form Input Standar (Sama seperti sebelumnya) */}
+          {/* Identitas Diri */}
           <div className="relative">
             <User className="absolute left-3 top-3 text-gray-400" size={18} />
-            <input 
-              type="text" required placeholder="Nama Lengkap & Gelar" 
-              className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.displayName}
-              onChange={e => setFormData({...formData, displayName: e.target.value})}
-            />
+            <input type="text" required placeholder="Nama Lengkap & Gelar" className="w-full pl-10 p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+              value={formData.displayName} onChange={e => setFormData({...formData, displayName: e.target.value})} />
           </div>
-
           <div className="relative">
             <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
-            <input 
-              type="email" required placeholder="Email Aktif" 
-              className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.email}
-              onChange={e => setFormData({...formData, email: e.target.value})}
-            />
+            <input type="email" required placeholder="Email Aktif" className="w-full pl-10 p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+              value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
-            <div className="relative">
-              <Hash className="absolute left-3 top-3 text-gray-400" size={18} />
-              <input 
-                type="text" required placeholder="NIP / ID Guru" 
-                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                value={formData.nip}
-                onChange={e => setFormData({...formData, nip: e.target.value})}
-              />
-            </div>
-            <div className="relative">
-              <Phone className="absolute left-3 top-3 text-gray-400" size={18} />
-              <input 
-                type="text" required placeholder="No. WhatsApp" 
-                className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                value={formData.phone}
-                onChange={e => setFormData({...formData, phone: e.target.value})}
-              />
-            </div>
+            <div className="relative"><Hash className="absolute left-3 top-3 text-gray-400" size={18} />
+              <input type="text" required placeholder="NIP / ID" className="w-full pl-10 p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} /></div>
+            <div className="relative"><Phone className="absolute left-3 top-3 text-gray-400" size={18} />
+              <input type="text" required placeholder="WhatsApp" className="w-full pl-10 p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /></div>
           </div>
-
           <div className="relative">
              <div className="absolute left-3 top-3 text-gray-400 font-bold text-xs">🏫</div>
-             <input 
-                type="text" required placeholder="Nama Sekolah / Instansi" 
-                className="w-full pl-9 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                value={formData.schoolName}
-                onChange={e => setFormData({...formData, schoolName: e.target.value})}
-             />
+             <input type="text" required placeholder="Nama Sekolah / Instansi" className="w-full pl-9 p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                value={formData.schoolName} onChange={e => setFormData({...formData, schoolName: e.target.value})} />
           </div>
-
           <div className="relative">
             <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
-            <input 
-              type="password" required placeholder="Password (Min. 6 Karakter)" 
-              className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.password}
-              onChange={e => setFormData({...formData, password: e.target.value})}
-            />
+            <input type="password" required placeholder="Password (Min. 6 Karakter)" className="w-full pl-10 p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+              value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
           </div>
 
-          {/* --- BAGIAN PEMILIHAN MAPEL (LOGIC BARU) --- */}
+          {/* --- BAGIAN 1: MAPEL --- */}
           <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-            <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-1"><BookOpen size={14}/> Mata Pelajaran Diampu</span>
-              
-              {/* Tombol Switch Mode */}
-              {!isManualMode ? (
-                 <button type="button" onClick={() => setIsManualMode(true)} className="text-[10px] text-indigo-600 underline hover:text-indigo-800">
-                   + Buat Baru
-                 </button>
-              ) : (
-                 <button type="button" onClick={() => setIsManualMode(false)} className="text-[10px] text-gray-500 underline hover:text-gray-700 flex items-center gap-1">
-                   <ArrowLeft size={10}/> Kembali ke List
-                 </button>
-              )}
-            </label>
-            
-            <div className="flex gap-2 mb-3">
-                {isManualMode ? (
-                  // INPUT MANUAL
-                  <input 
-                    type="text" 
-                    placeholder="Contoh: Muatan Lokal - Membatik"
-                    value={newSubjectName}
-                    onChange={e => setNewSubjectName(e.target.value)}
-                    className="flex-1 p-2.5 border border-indigo-300 bg-white rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none animate-in fade-in"
-                    autoFocus
-                  />
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-1"><BookOpen size={14}/> Mata Pelajaran</label>
+              <button type="button" onClick={() => setIsManualSubject(!isManualSubject)} className="text-[10px] text-indigo-600 underline hover:text-indigo-800">
+                {isManualSubject ? 'Kembali' : '+ Buat Baru'}
+              </button>
+            </div>
+            <div className="flex gap-2 mb-2">
+                {isManualSubject ? (
+                  <input type="text" placeholder="Mapel Baru..." value={newSubjectName} onChange={e => setNewSubjectName(e.target.value)} className="flex-1 p-2 border rounded text-sm outline-none" autoFocus />
                 ) : (
-                  // DROPDOWN SELECT
-                  <select 
-                    value={selectedSubjectId} 
-                    onChange={e=>setSelectedSubjectId(e.target.value)} 
-                    disabled={loadingSubjects}
-                    className="flex-1 p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                  >
-                      <option value="">{loadingSubjects ? "Memuat..." : "-- Pilih Mapel --"}</option>
+                  <select value={selectedSubjectId} onChange={e=>setSelectedSubjectId(e.target.value)} disabled={loadingData} className="flex-1 p-2 border rounded text-sm bg-white outline-none">
+                      <option value="">-- Pilih Mapel --</option>
                       {subjectsOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 )}
-
-                <button 
-                  type="button" 
-                  onClick={handleAddSubject} 
-                  className={`px-3 rounded-lg text-white transition shadow-sm flex items-center justify-center ${isManualMode ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                  title={isManualMode ? "Simpan Mapel Baru" : "Tambahkan Mapel"}
-                >
-                  {isManualMode ? <Save size={18}/> : <Plus size={20}/>}
+                <button type="button" onClick={handleAddSubject} className={`px-3 rounded text-white flex items-center ${isManualSubject?'bg-green-600':'bg-indigo-600'}`}>
+                  {isManualSubject ? <Save size={16}/> : <Plus size={18}/>}
                 </button>
             </div>
-
-            {/* List Mapel Terpilih */}
-            <div className="flex flex-wrap gap-2 min-h-[30px]">
-                {mySubjects.map((sub, idx) => (
-                    <span key={idx} className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm animate-in zoom-in ${sub.isNew ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-white text-indigo-700 border border-indigo-200'}`}>
-                        {sub.name} {sub.isNew && <span className="text-[9px] bg-green-200 px-1 rounded text-green-800">BARU</span>}
-                        <button type="button" onClick={()=>handleRemoveSubject(idx)} className="hover:text-red-500 transition rounded-full p-0.5 hover:bg-white/50">
-                          <X size={14}/>
-                        </button>
+            <div className="flex flex-wrap gap-2">
+                {mySubjects.map((s, i) => (
+                    <span key={i} className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 border ${s.isNew?'bg-green-100 text-green-700 border-green-200':'bg-white text-indigo-700 border-indigo-200'}`}>
+                        {s.name} <button type="button" onClick={()=>handleRemoveSubject(i)}><X size={12}/></button>
                     </span>
                 ))}
-                {mySubjects.length === 0 && <span className="text-gray-400 text-xs italic p-1">Belum ada mapel dipilih.</span>}
             </div>
           </div>
 
-          <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold hover:bg-indigo-700 flex justify-center gap-2 shadow-lg shadow-indigo-200 transition transform active:scale-95">
-            {loading ? <Loader2 className="animate-spin"/> : <UserPlus size={20}/>} Daftar Sekarang
+          {/* --- BAGIAN 2: KELAS (NEW) --- */}
+          <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-orange-800 uppercase flex items-center gap-1"><LayoutGrid size={14}/> Kelas Diampu</label>
+              <button type="button" onClick={() => setIsManualClass(!isManualClass)} className="text-[10px] text-orange-600 underline hover:text-orange-800">
+                {isManualClass ? 'Kembali' : '+ Buat Baru'}
+              </button>
+            </div>
+            <div className="flex gap-2 mb-2">
+                {isManualClass ? (
+                  <input type="text" placeholder="Kelas Baru (Contoh: X IPA 1)..." value={newClassName} onChange={e => setNewClassName(e.target.value)} className="flex-1 p-2 border rounded text-sm outline-none" autoFocus />
+                ) : (
+                  <select value={selectedClassId} onChange={e=>setSelectedClassId(e.target.value)} disabled={loadingData} className="flex-1 p-2 border rounded text-sm bg-white outline-none">
+                      <option value="">-- Pilih Kelas --</option>
+                      {classesOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                )}
+                <button type="button" onClick={handleAddClass} className={`px-3 rounded text-white flex items-center ${isManualClass?'bg-green-600':'bg-orange-600'}`}>
+                  {isManualClass ? <Save size={16}/> : <Plus size={18}/>}
+                </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                {myClasses.map((c, i) => (
+                    <span key={i} className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 border ${c.isNew?'bg-green-100 text-green-700 border-green-200':'bg-white text-orange-700 border-orange-200'}`}>
+                        {c.name} <button type="button" onClick={()=>handleRemoveClass(i)}><X size={12}/></button>
+                    </span>
+                ))}
+            </div>
+          </div>
+
+          <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 flex justify-center gap-2 shadow-lg transition transform active:scale-95">
+            {loading ? <Loader2 className="animate-spin"/> : <UserPlus size={20}/>} Selesaikan Pendaftaran
           </button>
         </form>
 
