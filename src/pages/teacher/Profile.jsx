@@ -4,6 +4,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { User, Mail, Phone, Save, Camera, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import PageTransition from '../../components/PageTransition';
 
 const TeacherProfile = () => {
   const [profile, setProfile] = useState({ displayName: '', email: '', phone: '', photoURL: '' });
@@ -72,6 +73,7 @@ const TeacherProfile = () => {
   if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin inline"/></div>;
 
   return (
+    <PageTransition>
     <motion.div 
       initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
       className="max-w-2xl mx-auto"
@@ -147,6 +149,7 @@ const TeacherProfile = () => {
         </div>
       </div>
     </motion.div>
+    </PageTransition>
   );
 };
 

@@ -7,6 +7,7 @@ import {
   BarChart3, Download, Search, FileSpreadsheet, Eye, X, CheckCircle2 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import PageTransition from '../../components/PageTransition';
 
 const TeacherGrades = () => {
   const [exams, setExams] = useState([]);
@@ -88,6 +89,7 @@ const TeacherGrades = () => {
   );
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
@@ -189,6 +191,7 @@ const TeacherGrades = () => {
         </table>
       </div>
     </div>
+    </PageTransition>
   );
 };
 

@@ -6,6 +6,7 @@ import {
 import { 
   Plus, Search, Pencil, Trash2, School, X, Save, Loader2, Users 
 } from 'lucide-react';
+import PageTransition from '../../components/PageTransition';
 
 const Classes = () => {
   const [classes, setClasses] = useState([]);
@@ -82,6 +83,7 @@ const Classes = () => {
   );
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -178,6 +180,7 @@ const Classes = () => {
         </div>
       )}
     </div>
+    </PageTransition>
   );
 };
 

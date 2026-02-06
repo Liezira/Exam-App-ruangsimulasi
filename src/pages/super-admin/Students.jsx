@@ -7,6 +7,7 @@ import {
   Plus, Search, Pencil, Trash2, Filter, X, Save, Loader2, User, Mail 
 } from 'lucide-react';
 import BulkImportStudents from '../../components/admin/BulkImportStudents';
+import PageTransition from '../../components/PageTransition';
 
 const Students = () => {
   const [students, setStudents] = useState([]);
@@ -118,6 +119,7 @@ const Students = () => {
   const closeModal = () => setIsModalOpen(false);
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -257,6 +259,7 @@ const Students = () => {
       )}
       <style>{`.label-text { display: block; font-size: 0.75rem; font-weight: 700; color: #374151; text-transform: uppercase; margin-bottom: 0.25rem; } .input-field { width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; outline: none; transition: all; } .input-field:focus { ring: 2px; ring-color: #6366f1; border-color: transparent; }`}</style>
     </div>
+    </PageTransition>
   );
 };
 

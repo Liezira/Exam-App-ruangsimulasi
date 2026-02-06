@@ -6,6 +6,7 @@ import {
 import { 
   Plus, Search, Pencil, Trash2, X, Save, Loader2, Mail, Phone, BookOpen 
 } from 'lucide-react';
+import PageTransition from '../../components/PageTransition';
 
 const Teachers = () => {
   const [teachers, setTeachers] = useState([]);
@@ -127,6 +128,7 @@ const Teachers = () => {
   );
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div><h2 className="text-2xl font-bold">Data Guru</h2><p className="text-gray-500 text-sm">Kelola Guru Multi-Mapel</p></div>
@@ -210,6 +212,7 @@ const Teachers = () => {
         </div>
       )}
     </div>
+    </PageTransition>
   );
 };
 

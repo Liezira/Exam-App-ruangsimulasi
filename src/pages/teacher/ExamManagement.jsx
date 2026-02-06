@@ -6,6 +6,7 @@ import {
 import { 
   Plus, Clock, Users, Save, X, Loader2, Ticket, CheckCircle2, FileText, AlertTriangle 
 } from 'lucide-react';
+import PageTransition from '../../components/PageTransition';
 
 const ExamManagement = () => {
   const [exams, setExams] = useState([]);
@@ -145,6 +146,7 @@ const ExamManagement = () => {
   if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin inline text-indigo-600"/> Memuat data...</div>;
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -278,6 +280,7 @@ const ExamManagement = () => {
         </div>
       )}
     </div>
+    </PageTransition>
   );
 };
 
