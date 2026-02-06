@@ -1,38 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { doc, setDoc, addDoc, collection, query, orderBy, getDocs, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { UserPlus, Mail, Lock, User, Loader2, Phone, Hash, BookOpen, Plus, X } from 'lucide-react';
+import { UserPlus, Mail, Lock, User, Loader2, Phone, Hash, BookOpen, Plus, X, ArrowLeft, Save } from 'lucide-react';
 
 const Register = () => {
   // State Form Utama
   const [formData, setFormData] = useState({ 
-    displayName: '', 
-    email: '', 
-    password: '', 
-    nip: '', 
-    phone: '', 
-    schoolName: '', // Tetap butuh ini untuk konteks sekolah guru
-    subjectIds: [] // Array untuk menampung banyak mapel
+    displayName: '', email: '', password: '', nip: '', phone: '', schoolName: '' 
   });
 
-  // State Pendukung
-  const [subjects, setSubjects] = useState([]); // Data mapel dari DB
-  const [selectedSubject, setSelectedSubject] = useState(''); // Pilihan dropdown sementara
+  // State Manajemen Mapel (PENTING)
+  // Kita simpan objek { id, name, isNew } agar bisa membedakan mapel lama vs baru
+  const [mySubjects, setMySubjects] = useState([]); 
+  
+  // State UI
+  const [subjectsOptions, setSubjectsOptions] = useState([]); // Daftar mapel dari DB
+  const [selectedSubjectId, setSelectedSubjectId] = useState(''); // Pilihan dropdown
+  const [newSubjectName, setNewSubjectName] = useState(''); // Input manual mapel baru
+  const [isManualMode, setIsManualMode] = useState(false); // Mode input manual?
+  
   const [loading, setLoading] = useState(false);
   const [loadingSubjects, setLoadingSubjects] = useState(true);
   
   const navigate = useNavigate();
 
-  // 1. Load Daftar Mapel saat halaman dibuka
+  // 1. Load Daftar Mapel dari DB
   useEffect(() => {
     const fetchSubjects = async () => {
       try {
         const q = query(collection(db, 'subjects'), orderBy('name', 'asc'));
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setSubjects(data);
+        setSubjectsOptions(data);
       } catch (error) {
         console.error("Gagal memuat mapel:", error);
       } finally {
@@ -42,26 +43,37 @@ const Register = () => {
     fetchSubjects();
   }, []);
 
-  // Helper: Tambah Mapel ke List (Sama seperti Admin)
+  // Helper: Tambah Mapel ke List Saya
   const handleAddSubject = () => {
-    if (!selectedSubject) return;
-    if (!formData.subjectIds.includes(selectedSubject)) {
-      setFormData({ ...formData, subjectIds: [...formData.subjectIds, selectedSubject] });
+    if (isManualMode) {
+      // MODE BUAT BARU
+      if (!newSubjectName.trim()) return;
+      // Cek duplikat di list sendiri
+      if (mySubjects.some(s => s.name.toLowerCase() === newSubjectName.toLowerCase())) return alert("Mapel ini sudah Anda pilih.");
+      
+      setMySubjects([...mySubjects, { id: null, name: newSubjectName, isNew: true }]);
+      setNewSubjectName('');
+      setIsManualMode(false); // Kembali ke dropdown
+    } else {
+      // MODE PILIH YG ADA
+      if (!selectedSubjectId) return;
+      const sub = subjectsOptions.find(s => s.id === selectedSubjectId);
+      if (sub && !mySubjects.some(s => s.id === sub.id)) {
+        setMySubjects([...mySubjects, { id: sub.id, name: sub.name, isNew: false }]);
+      }
+      setSelectedSubjectId('');
     }
-    setSelectedSubject('');
   };
 
   // Helper: Hapus Mapel dari List
-  const handleRemoveSubject = (idToRemove) => {
-    setFormData({
-      ...formData,
-      subjectIds: formData.subjectIds.filter(id => id !== idToRemove)
-    });
+  const handleRemoveSubject = (indexToRemove) => {
+    setMySubjects(mySubjects.filter((_, idx) => idx !== indexToRemove));
   };
 
+  // --- LOGIC REGISTRASI UTAMA ---
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (formData.subjectIds.length === 0) return alert("Mohon pilih minimal satu mata pelajaran!");
+    if (mySubjects.length === 0) return alert("Mohon pilih atau buat minimal satu mata pelajaran!");
 
     setLoading(true);
     try {
@@ -72,23 +84,41 @@ const Register = () => {
       // 2. Update Nama di Auth Profile
       await updateProfile(user, { displayName: formData.displayName });
 
-      // 3. Simpan Data Lengkap ke Firestore (Sesuai Struktur Admin)
+      // 3. PROSES MAPEL (Logic Cerdas)
+      // Kita harus memisahkan mana ID yang sudah ada, dan mana Mapel Baru yang harus dibuat dulu.
+      let finalSubjectIds = [];
+
+      for (const item of mySubjects) {
+        if (item.isNew) {
+          // Jika Mapel Baru: Buat dulu di collection 'subjects', lalu ambil ID-nya
+          const newSubRef = await addDoc(collection(db, 'subjects'), {
+            name: item.name,
+            createdAt: serverTimestamp() // Opsional: track kapan dibuat
+          });
+          finalSubjectIds.push(newSubRef.id);
+        } else {
+          // Jika Mapel Lama: Langsung pakai ID-nya
+          finalSubjectIds.push(item.id);
+        }
+      }
+
+      // 4. Simpan Profil Guru Lengkap ke Firestore
       await setDoc(doc(db, 'users', user.uid), {
-        role: 'teacher', // Otomatis jadi Guru
+        role: 'teacher',
         displayName: formData.displayName,
         email: formData.email,
         nip: formData.nip,
         phone: formData.phone,
         schoolName: formData.schoolName,
-        subjectIds: formData.subjectIds, // Simpan Array Mapel
+        subjectIds: finalSubjectIds, // Array ID Mapel (Campuran lama & baru)
         photoURL: '',
         credits: 0,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        createdAt: serverTimestamp()
       });
 
-      alert("Registrasi Berhasil! Silakan Login.");
+      alert("Registrasi Berhasil! Mapel baru Anda juga telah disimpan.");
       navigate('/login');
+
     } catch (error) {
       console.error(error);
       if (error.code === 'auth/email-already-in-use') {
@@ -106,12 +136,12 @@ const Register = () => {
       <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 animate-in fade-in zoom-in duration-300">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-indigo-900">Registrasi Guru</h1>
-          <p className="text-gray-500 text-sm">Lengkapi data diri Anda untuk memulai.</p>
+          <p className="text-gray-500 text-sm">Lengkapi data diri & mapel Anda.</p>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-4">
           
-          {/* NAMA LENGKAP */}
+          {/* Form Input Standar (Sama seperti sebelumnya) */}
           <div className="relative">
             <User className="absolute left-3 top-3 text-gray-400" size={18} />
             <input 
@@ -122,7 +152,6 @@ const Register = () => {
             />
           </div>
 
-          {/* EMAIL */}
           <div className="relative">
             <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
             <input 
@@ -133,7 +162,6 @@ const Register = () => {
             />
           </div>
 
-          {/* NIP & HP (Grid 2 Kolom) */}
           <div className="grid grid-cols-2 gap-4">
             <div className="relative">
               <Hash className="absolute left-3 top-3 text-gray-400" size={18} />
@@ -155,7 +183,6 @@ const Register = () => {
             </div>
           </div>
 
-          {/* SEKOLAH (Penting untuk konteks Guru Mandiri) */}
           <div className="relative">
              <div className="absolute left-3 top-3 text-gray-400 font-bold text-xs">🏫</div>
              <input 
@@ -166,7 +193,6 @@ const Register = () => {
              />
           </div>
 
-          {/* PASSWORD */}
           <div className="relative">
             <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
             <input 
@@ -177,55 +203,70 @@ const Register = () => {
             />
           </div>
 
-          {/* MULTI SUBJECT SELECTOR (PERSIS SEPERTI ADMIN) */}
+          {/* --- BAGIAN PEMILIHAN MAPEL (LOGIC BARU) --- */}
           <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-  <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 flex items-center gap-1">
-    <BookOpen size={14}/> Mata Pelajaran Diampu
-  </label>
-  
-  <div className="flex gap-2 mb-3">
-      <select 
-        value={selectedSubject} 
-        onChange={e=>setSelectedSubject(e.target.value)} 
-        disabled={loadingSubjects}
-        className="flex-1 p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-      >
-          <option value="">{loadingSubjects ? "Memuat Mapel..." : "-- Pilih Mapel --"}</option>
-          {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-      </select>
-
-      {/* PERHATIKAN: type="button" SANGAT PENTING DISINI */}
-                  <button 
-                    type="button" 
-                    onClick={handleAddSubject} 
-                    className="bg-indigo-600 text-white px-3 rounded-lg hover:bg-indigo-700 transition flex items-center justify-center shadow-sm"
-                    title="Tambahkan Mapel"
+            <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1"><BookOpen size={14}/> Mata Pelajaran Diampu</span>
+              
+              {/* Tombol Switch Mode */}
+              {!isManualMode ? (
+                 <button type="button" onClick={() => setIsManualMode(true)} className="text-[10px] text-indigo-600 underline hover:text-indigo-800">
+                   + Buat Baru
+                 </button>
+              ) : (
+                 <button type="button" onClick={() => setIsManualMode(false)} className="text-[10px] text-gray-500 underline hover:text-gray-700 flex items-center gap-1">
+                   <ArrowLeft size={10}/> Kembali ke List
+                 </button>
+              )}
+            </label>
+            
+            <div className="flex gap-2 mb-3">
+                {isManualMode ? (
+                  // INPUT MANUAL
+                  <input 
+                    type="text" 
+                    placeholder="Contoh: Muatan Lokal - Membatik"
+                    value={newSubjectName}
+                    onChange={e => setNewSubjectName(e.target.value)}
+                    className="flex-1 p-2.5 border border-indigo-300 bg-white rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none animate-in fade-in"
+                    autoFocus
+                  />
+                ) : (
+                  // DROPDOWN SELECT
+                  <select 
+                    value={selectedSubjectId} 
+                    onChange={e=>setSelectedSubjectId(e.target.value)} 
+                    disabled={loadingSubjects}
+                    className="flex-1 p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                   >
-                    <Plus size={20}/>
-                  </button>
-              </div>
+                      <option value="">{loadingSubjects ? "Memuat..." : "-- Pilih Mapel --"}</option>
+                      {subjectsOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
 
-              {/* Area Menampilkan Tags Mapel yang Sudah Dipilih */}
-              <div className="flex flex-wrap gap-2 min-h-[30px]">
-                  {formData.subjectIds.map(id => {
-                      // Cari nama mapel berdasarkan ID
-                      const subName = subjects.find(s=>s.id===id)?.name || "Loading...";
-                      return (
-                          <span key={id} className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm animate-in zoom-in">
-                              {subName} 
-                              <button 
-                                type="button" 
-                                onClick={()=>handleRemoveSubject(id)} 
-                                className="hover:text-red-500 transition rounded-full p-0.5 hover:bg-red-50"
-                              >
-                                <X size={14}/>
-                              </button>
-                          </span>
-                      )
-                  })}
-                  {formData.subjectIds.length === 0 && <span className="text-gray-400 text-xs italic p-1">Belum ada mapel dipilih.</span>}
-              </div>
+                <button 
+                  type="button" 
+                  onClick={handleAddSubject} 
+                  className={`px-3 rounded-lg text-white transition shadow-sm flex items-center justify-center ${isManualMode ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                  title={isManualMode ? "Simpan Mapel Baru" : "Tambahkan Mapel"}
+                >
+                  {isManualMode ? <Save size={18}/> : <Plus size={20}/>}
+                </button>
             </div>
+
+            {/* List Mapel Terpilih */}
+            <div className="flex flex-wrap gap-2 min-h-[30px]">
+                {mySubjects.map((sub, idx) => (
+                    <span key={idx} className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm animate-in zoom-in ${sub.isNew ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-white text-indigo-700 border border-indigo-200'}`}>
+                        {sub.name} {sub.isNew && <span className="text-[9px] bg-green-200 px-1 rounded text-green-800">BARU</span>}
+                        <button type="button" onClick={()=>handleRemoveSubject(idx)} className="hover:text-red-500 transition rounded-full p-0.5 hover:bg-white/50">
+                          <X size={14}/>
+                        </button>
+                    </span>
+                ))}
+                {mySubjects.length === 0 && <span className="text-gray-400 text-xs italic p-1">Belum ada mapel dipilih.</span>}
+            </div>
+          </div>
 
           <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold hover:bg-indigo-700 flex justify-center gap-2 shadow-lg shadow-indigo-200 transition transform active:scale-95">
             {loading ? <Loader2 className="animate-spin"/> : <UserPlus size={20}/>} Daftar Sekarang
