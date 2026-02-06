@@ -8,6 +8,7 @@ import { Loader2 } from 'lucide-react';
 // --- IMPORTS HALAMAN ASLI ---
 import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/auth/Login';
+import Register from './pages/auth/Register';
 
 // Super Admin Pages
 import Subjects from './pages/super-admin/Subjects';
