@@ -7,6 +7,8 @@ import {
   BarChart3, Download, Search, FileSpreadsheet, Eye, X, CheckCircle2 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { FileText } from 'lucide-react'; 
+import { exportRaportPDF } from '../../utils/ReportGenerator'; 
 import PageTransition from '../../components/PageTransition';
 
 const TeacherGrades = () => {
@@ -88,6 +90,17 @@ const TeacherGrades = () => {
     r.studentName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleDownloadPDF = () => {
+    if (results.length === 0) return alert("Belum ada data nilai!");
+    
+    const examData = exams.find(e => e.id === selectedExamId);
+    const examName = examData?.name || 'Ujian';
+    const className = "Semua Kelas"; // Nanti bisa disesuaikan jika filter per kelas
+    const teacherName = auth.currentUser?.displayName || "Guru Pengampu";
+
+    exportRaportPDF(examName, className, teacherName, results);
+  };
+
   return (
     <PageTransition>
     <div className="space-y-6">
@@ -144,6 +157,13 @@ const TeacherGrades = () => {
             className="flex-1 outline-none text-sm"
           />
         </div>
+        <button 
+            onClick={handleDownloadPDF}
+            disabled={results.length === 0}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm disabled:opacity-50 transition shadow-sm"
+          >
+            <FileText size={18}/> Raport PDF
+          </button>
         <button 
           onClick={handleExport}
           disabled={results.length === 0}
