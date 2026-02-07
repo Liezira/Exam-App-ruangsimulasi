@@ -35,6 +35,8 @@ const ExamManagement = () => {
       if (!user) return;
 
       try {
+        console.log("Starting data load for:", user.uid); // Debug Log
+
         // A. Ambil Data Guru & Mapelnya
         let tData = null;
         const docSnap = await getDoc(doc(db, 'users', user.uid));
@@ -64,9 +66,25 @@ const ExamManagement = () => {
         const classSnap = await getDocs(query(collection(db, 'classes'), orderBy('name')));
         setClasses(classSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-        // C. Ambil Riwayat Ujian Guru Ini
-        const examSnap = await getDocs(query(collection(db, 'exam_sessions'), where('teacherId', '==', user.uid), orderBy('createdAt', 'desc')));
-        setExams(examSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        // C. Ambil Riwayat Ujian (FIX: Hapus orderBy sementara untuk mencegah Index Error)
+        // Kita sorting manual via Javascript (Client-Side)
+        const qExams = query(
+            collection(db, 'exam_sessions'), 
+            where('teacherId', '==', user.uid)
+        );
+        
+        const examSnap = await getDocs(qExams);
+        const fetchedExams = examSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        // Sorting Client-Side (Terbaru di atas)
+        fetchedExams.sort((a, b) => {
+            const timeA = a.createdAt?.seconds || 0;
+            const timeB = b.createdAt?.seconds || 0;
+            return timeB - timeA;
+        });
+
+        console.log("Exams Loaded:", fetchedExams); // Debug Log
+        setExams(fetchedExams);
         
       } catch (error) {
         console.error("Error loading data:", error);
@@ -113,6 +131,8 @@ const ExamManagement = () => {
         alert("Kelas ini kosong! Ujian dibuat tapi tidak ada token.");
         setIsSubmitting(false);
         setIsModalOpen(false);
+        // Refresh manual agar data tampil
+        window.location.reload(); 
         return; 
       }
 
