@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom'; // <--- JANGAN LUPA IMPORT 'Link'
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
-import { auth, db } from '../../firebase';
+import { useNavigate, Link } from 'react-router-dom';
+import { supabase } from '../../firebase'; // Ganti path ini ke lokasi inisialisasi Supabase client kamu (misal: '../../lib/supabaseClient')
 import { LogIn, Lock, Mail, Eye, EyeOff, AlertCircle, School, Loader2, UserPlus } from 'lucide-react';
 
 const Login = () => {
@@ -15,49 +13,68 @@ const Login = () => {
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-    // ... (Logika login SAMA PERSIS seperti sebelumnya, tidak perlu diubah) ...
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      let userData = null;
-      let docRef = doc(db, 'users', user.uid);
-      let docSnap = await getDoc(docRef);
+      // 1. Login menggunakan Supabase Auth
+      const { data: { user }, error: authError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password,
+      });
 
-      if (docSnap.exists()) {
-        userData = docSnap.data();
-      } else {
-        const q = query(collection(db, 'users'), where('email', '==', user.email));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) userData = querySnapshot.docs[0].data();
+      if (authError) throw authError;
+      if (!user) throw new Error("User tidak ditemukan.");
+
+      // 2. Ambil Data Role dari Tabel 'profiles' (Bukan Firestore 'users' lagi)
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, school_id') // Kita ambil role & school_id
+        .eq('id', user.id)
+        .single();
+
+      if (profileError || !profile) {
+        throw new Error("Data profil tidak ditemukan di database.");
       }
 
-      if (userData) {
-        const role = userData.role;
-        if (role === 'super_admin') navigate('/admin');
-        else if (role === 'teacher') navigate('/teacher');
-        else if (role === 'student') navigate('/student');
-        else {
-          setError('Role akun tidak valid.');
-          await auth.signOut();
-        }
-      } else {
-        setError('Data pengguna tidak ditemukan.');
-        await auth.signOut();
+      // 3. Logika Redirect Berdasarkan Role (FIX OWNER DISINI)
+      const role = profile.role;
+
+      if (role === 'super_admin') {
+        navigate('/owner'); // <--- INI PERBAIKANNYA (Ke Dashboard Owner)
+      } 
+      else if (role === 'school_admin') {
+        navigate('/admin'); // Admin Sekolah
+      } 
+      else if (role === 'teacher') {
+        navigate('/teacher');
+      } 
+      else if (role === 'student') {
+        navigate('/student');
+      } 
+      else {
+        setError('Role akun tidak valid.');
+        await supabase.auth.signOut();
       }
+
     } catch (err) {
-      setError('Email atau password salah.');
+      console.error(err);
+      // Pesan error yang lebih user friendly
+      if (err.message.includes('Invalid login credentials')) {
+        setError('Email atau password salah.');
+      } else {
+        setError(err.message || 'Terjadi kesalahan saat login.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  // --- BAGIAN UI DI BAWAH INI TIDAK ADA YANG BERUBAH ---
   return (
     <div className="min-h-screen flex bg-white">
-      {/* Bagian Kiri (Hero) - SAMA */}
+      {/* Bagian Kiri (Hero) */}
       <div className="hidden lg:flex lg:w-1/2 bg-indigo-900 relative overflow-hidden items-center justify-center">
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-600 to-blue-900 opacity-90"></div>
         <div className="relative z-10 text-center px-10">
