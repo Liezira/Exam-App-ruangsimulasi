@@ -3,6 +3,7 @@ import {
   LayoutDashboard, School, Users, CreditCard, Settings, LogOut, 
   Search, Plus, MoreVertical, TrendingUp, AlertCircle, ExternalLink 
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 const OwnerDashboard = () => {
   // --- MOCK DATA (Nanti diganti dengan data dari Supabase RPC) ---

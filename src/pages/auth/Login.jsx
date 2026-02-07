@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../../firebase'; // Ganti path ini ke lokasi inisialisasi Supabase client kamu (misal: '../../lib/supabaseClient')
+import { supabase } from '../../lib/supabase';
 import { LogIn, Lock, Mail, Eye, EyeOff, AlertCircle, School, Loader2, UserPlus } from 'lucide-react';
 
 const Login = () => {
